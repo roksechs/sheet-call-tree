@@ -13,6 +13,18 @@ class CircularReferenceError(Exception):
         super().__init__(f"Circular reference detected: {path}")
 
 
+def find_root_cells(graph: dict[str, set[str]]) -> set[str]:
+    """Return cells that are not referenced by any other formula cell.
+
+    These are the "entry point" cells — they depend on other cells but
+    nothing else depends on them.
+    """
+    referenced: set[str] = set()
+    for deps in graph.values():
+        referenced.update(deps)
+    return set(graph) - referenced
+
+
 def build_dependency_graph(formula_cells: dict[str, object]) -> dict[str, set[str]]:
     """Return a mapping from each formula cell to the set of cell refs it depends on.
 

@@ -14,22 +14,27 @@ from .models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
 log = logging.getLogger(__name__)
 
 
-def extract_formula_cells(path: str | Path) -> dict[str, FunctionNode]:
-    """Load an xlsx file and return a dict mapping cell refs to their ASTs.
+def extract_formula_cells(
+    path: str | Path,
+) -> tuple[dict[str, FunctionNode], dict[str, object]]:
+    """Load an xlsx file and return formula ASTs and cached cell values.
 
     Loads the workbook twice: once for formulas (data_only=False, full load) and
     once for cached values (data_only=True, read_only streaming to save memory).
     Both are iterated together in a single pass via zip().  After each stage the
     workbook objects are closed so their memory is freed before the next stage.
 
-    Only formula cells (values starting with '=') are included as keys.
-    Constant cells appear only as RefNode values inside formula ASTs.
+    Only formula cells (values starting with '=') are included as keys in
+    the first dict. Constant cells appear only as RefNode values inside
+    formula ASTs.
 
     Args:
         path: Path to the .xlsx file.
 
     Returns:
-        Dict mapping 'SheetName!CellRef' strings to FunctionNode AST roots.
+        Tuple of (formula_cells, data_values) where formula_cells maps
+        'SheetName!CellRef' strings to FunctionNode AST roots, and
+        data_values maps cell refs to their cached scalar values.
     """
     wb = openpyxl.load_workbook(path, data_only=False)
     wb_data = openpyxl.load_workbook(path, data_only=True, read_only=True)
@@ -41,7 +46,7 @@ def extract_formula_cells(path: str | Path) -> dict[str, FunctionNode]:
     wb.close()  # formula workbook no longer needed
 
     _populate_ref_values(cells, data_values, table_ranges, named_ranges)
-    return cells
+    return cells, data_values
 
 
 def extract_formula_cells_from_workbook(wb: openpyxl.Workbook) -> dict[str, FunctionNode]:

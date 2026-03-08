@@ -8,7 +8,7 @@ import warnings
 from pathlib import Path
 
 from ._i18n import get_strings
-from .dependency_graph import build_dependency_graph, detect_cycles
+from .dependency_graph import build_dependency_graph, detect_cycles, find_root_cells
 from .reader import extract_formula_cells
 from .serializer import to_yaml
 
@@ -57,6 +57,11 @@ def main(argv=None) -> int:
         dest="fmt",
         help="Output format: tree (default) or inline.",
     )
+    parser.add_argument(
+        "--roots-only",
+        action="store_true",
+        help="Output only root cells (cells not referenced by any other formula cell).",
+    )
     # Legacy --ref-mode (deprecated)
     parser.add_argument(
         "--ref-mode",
@@ -78,11 +83,19 @@ def main(argv=None) -> int:
         if args.ref_mode == "inline":
             fmt = "inline"
 
-    formula_cells = extract_formula_cells(args.input)
+    formula_cells, data_values = extract_formula_cells(args.input)
 
     if not args.no_cycle_check:
         graph = build_dependency_graph(formula_cells)
         detect_cycles(graph)
+
+    if args.roots_only:
+        if not args.no_cycle_check:
+            roots = find_root_cells(graph)
+        else:
+            graph = build_dependency_graph(formula_cells)
+            roots = find_root_cells(graph)
+        formula_cells = {ref: ast for ref, ast in formula_cells.items() if ref in roots}
 
     if args.filter_cell:
         if args.filter_cell not in formula_cells:
@@ -93,11 +106,12 @@ def main(argv=None) -> int:
             return 1
         formula_cells = {args.filter_cell: formula_cells[args.filter_cell]}
 
+    yaml_kw = dict(depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name, data_values=data_values)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
-            to_yaml(formula_cells, depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name, stream=fh)
+            to_yaml(formula_cells, stream=fh, **yaml_kw)
     else:
-        print(to_yaml(formula_cells, depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name), end="")
+        print(to_yaml(formula_cells, **yaml_kw), end="")
 
     return 0
 

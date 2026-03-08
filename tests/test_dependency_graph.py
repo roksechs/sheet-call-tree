@@ -5,6 +5,7 @@ from sheet_call_tree.dependency_graph import (
     CircularReferenceError,
     build_dependency_graph,
     detect_cycles,
+    find_root_cells,
 )
 from sheet_call_tree.reader import extract_formula_cells_from_workbook
 
@@ -40,3 +41,24 @@ def test_circular_error_message(circular_workbook):
     msg = str(exc_info.value)
     assert "Circular reference" in msg
     assert "→" in msg
+
+
+def test_find_root_cells_simple(simple_workbook):
+    cells = extract_formula_cells_from_workbook(simple_workbook)
+    graph = build_dependency_graph(cells)
+    roots = find_root_cells(graph)
+    # B10 and B11 are roots (nothing depends on them); C5 is not (B10/B11 depend on it)
+    assert roots == {"Sheet1!B10", "Sheet1!B11"}
+
+
+def test_find_root_cells_all_independent():
+    graph = {"A": set(), "B": set(), "C": set()}
+    roots = find_root_cells(graph)
+    assert roots == {"A", "B", "C"}
+
+
+def test_find_root_cells_chain():
+    # A → B → C: only A is a root
+    graph = {"A": {"B"}, "B": {"C"}, "C": set()}
+    roots = find_root_cells(graph)
+    assert roots == {"A"}

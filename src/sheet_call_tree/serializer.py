@@ -1,7 +1,7 @@
 """Serialize typed formula AST nodes to YAML.
 
 Rendering parameters:
-  --depth N       Expansion depth (default: inf). 0 = refs only, inf = full expansion.
+  --depth N       Expansion depth (default: 0). 0 = refs only, inf = full expansion.
   --format F      tree (default) | inline
 
 Legacy --ref-mode mapping:
@@ -150,6 +150,7 @@ def to_yaml(
     fmt: str = "tree",
     ref_mode: str | None = None,
     book_name: str = "",
+    data_values: dict[str, object] | None = None,
     stream=None,
 ) -> str | None:
     """Convert a formula_cells dict to YAML.
@@ -161,6 +162,8 @@ def to_yaml(
         ref_mode:      Legacy parameter. Maps: 'ref'→depth 0, 'ast'→depth inf,
                        'inline'→inline format + depth inf.
         book_name:     Workbook filename for the top-level 'book.name' field.
+        data_values:   Mapping of cell refs to cached scalar values (from
+                       data_only workbook). Used to populate 'outputs' fields.
         stream:        Optional writable stream. If provided, YAML is written
                        there and None is returned. Otherwise the YAML string
                        is returned.
@@ -172,6 +175,7 @@ def to_yaml(
     if ref_mode == "inline":
         fmt = "inline"
     resolved_depth = _resolve_depth(depth, ref_mode)
+    dv = data_values or {}
 
     is_inline = fmt == "inline"
     _inline_cache: dict[str, str] | None = {} if is_inline else None
@@ -184,22 +188,25 @@ def to_yaml(
             formula = _expr(node, resolved_depth, 0, _inline_cache)
         else:
             formula = _to_dict(node, resolved_depth, 0)
-        sheets[sheet].append((cell, formula))
+        cell_output = dv.get(full_ref)
+        sheets[sheet].append((cell, formula, cell_output))
 
     buf: list[str] = ["book:\n", f"  name: {_ys(book_name)}\n", "  sheets:\n"]
     for sheet_name, cells in sheets.items():
         buf.append(f"  - name: {_ys(sheet_name)}\n")
         buf.append("    cells:\n")
-        for cell_ref, formula in cells:
+        for cell_ref, formula, cell_output in cells:
             buf.append(f"    - cell: {_ys(cell_ref)}\n")
+            if cell_output is not None:
+                buf.append(f"      outputs: {_yscalar(cell_output)}\n")
             if isinstance(formula, dict):
-                buf.append("      formula:\n")
+                buf.append("      expression:\n")
                 _emit_dict(buf, formula, 8)
             elif isinstance(formula, list):
-                buf.append("      formula:\n")
+                buf.append("      expression:\n")
                 _emit_list(buf, formula, 8)
             else:
-                buf.append(f"      formula: {_yscalar(formula)}\n")
+                buf.append(f"      expression: {_yscalar(formula)}\n")
 
     result = "".join(buf)
     if stream is not None:
@@ -213,56 +220,87 @@ def to_yaml(
 # ---------------------------------------------------------------------------
 
 def _range_ref_str(node: RangeNode) -> str:
-    """Build the '@Sheet1!A1:A9' string for a RangeNode."""
-    # Extract the end cell (without sheet qualifier if same sheet)
+    """Build the 'Sheet1!A1:A9' string for a RangeNode (no @ sigil)."""
     if "!" in node.end:
         _, end_cell = node.end.rsplit("!", 1)
     else:
         end_cell = node.end
-    return f"@{node.start}:{end_cell}"
+    return f"{node.start}:{end_cell}"
+
+
+# Sentinel to signal that a RangeNode was expanded into a list of values
+# that should be flattened into the parent's inputs.
+_RANGE_EXPAND = type("_RANGE_EXPAND", (), {"__slots__": ("values",)})
 
 
 def _to_dict(node, depth: float, current_depth: int):
-    """Convert a typed AST node to a YAML-serializable structure."""
+    """Convert a typed AST node to a YAML-serializable structure.
+
+    Format:
+      FunctionNode  → {"type": name, "inputs": [...]}
+      RefNode       → "Sheet1!C5" (at depth limit)
+                    → {"cell": ref, "outputs": value, "expression": ...} (expanded)
+      RangeNode     → "Sheet1!A1:A2" (at depth limit)
+                    → flattened list of values (expanded, merged into parent inputs)
+      TableRefNode  → {"type": "TABLE_REF", "name": ..., ...}
+      NamedRefNode  → {"type": "NAMED_REF", "name": ..., ...} (at depth limit)
+                    → {"named_ref": name, "outputs": ..., "expression": ...} (expanded)
+      Scalar        → raw value
+    """
     if isinstance(node, TableRefNode):
-        d: dict = {"name": node.table_name}
+        d: dict = {"type": "TABLE_REF", "name": node.table_name}
         if node.column:
             d["column"] = node.column
         if node.this_row:
             d["this_row"] = True
         if node.resolved_range:
             d["range"] = node.resolved_range
-        return {"TABLE_REF": d}
+        return d
 
     if isinstance(node, NamedRefNode):
         if current_depth < depth and isinstance(node.formula, FunctionNode):
-            return {f"NAMED_REF({node.name})": _to_dict(node.formula, depth, current_depth + 1)}
+            d = {"named_ref": node.name}
+            if node.resolved_value is not None:
+                d["outputs"] = node.resolved_value
+            d["expression"] = _to_dict(node.formula, depth, current_depth + 1)
+            return d
         if current_depth < depth and node.resolved_value is not None:
-            return {f"NAMED_REF({node.name})": node.resolved_value}
-        d = {"name": node.name}
+            return {"named_ref": node.name, "outputs": node.resolved_value}
+        d = {"type": "NAMED_REF", "name": node.name}
         if node.resolved_range:
             d["range"] = node.resolved_range
-        return {"NAMED_REF": d}
+        return d
 
     if isinstance(node, FunctionNode):
-        return {node.name: [_to_dict(arg, depth, current_depth) for arg in node.args]}
+        inputs = []
+        for arg in node.args:
+            result = _to_dict(arg, depth, current_depth)
+            if isinstance(result, _RANGE_EXPAND):
+                inputs.extend(result.values)
+            else:
+                inputs.append(result)
+        return {"type": node.name, "inputs": inputs}
 
     if isinstance(node, RangeNode):
-        ref_str = _range_ref_str(node)
-        d = {"ref": ref_str}
         if current_depth < depth and node.values is not None:
-            d["values"] = node.values
-        return {"RANGE": d}
+            marker = _RANGE_EXPAND()
+            marker.values = node.values
+            return marker
+        return _range_ref_str(node)
 
     if isinstance(node, RefNode):
-        at_ref = f"@{node.ref}"
+        ref = node.ref
         if current_depth >= depth:
-            return at_ref
+            return ref
         if node.formula is not None:
-            return {at_ref: _to_dict(node.formula, depth, current_depth + 1)}
+            d = {"cell": ref}
+            if node.resolved_value is not None:
+                d["outputs"] = node.resolved_value
+            d["expression"] = _to_dict(node.formula, depth, current_depth + 1)
+            return d
         if node.resolved_value is not None:
-            return {at_ref: node.resolved_value}
-        return at_ref  # unknown ref
+            return {"cell": ref, "outputs": node.resolved_value}
+        return ref  # unknown ref
 
     # Scalar (int, float, bool, str)
     return node
@@ -283,20 +321,26 @@ def _expr(node, depth: float, current_depth: int, _cache: dict[str, str] | None 
         return f"NAMED_REF({node.name})"
 
     if isinstance(node, FunctionNode):
-        args_str = ", ".join(_expr(arg, depth, current_depth, _cache) for arg in node.args)
+        parts = []
+        for arg in node.args:
+            if isinstance(arg, RangeNode) and current_depth < depth and arg.values is not None:
+                parts.extend(_scalar_str(v) for v in arg.values)
+            else:
+                parts.append(_expr(arg, depth, current_depth, _cache))
+        args_str = ", ".join(parts)
         return f"{node.name}({args_str})"
 
     if isinstance(node, RangeNode):
         ref_str = _range_ref_str(node)
         if current_depth < depth and node.values is not None:
             vals = ", ".join(_scalar_str(v) for v in node.values)
-            return f"RANGE({ref_str}, [{vals}])"
-        return f"RANGE({ref_str})"
+            return f"[{vals}]"
+        return ref_str
 
     if isinstance(node, RefNode):
-        at_ref = f"@{node.ref}"
+        ref = node.ref
         if current_depth >= depth:
-            return at_ref
+            return ref
         if node.formula is not None:
             if _cache is not None:
                 cached = _cache.get(node.ref)
@@ -308,7 +352,7 @@ def _expr(node, depth: float, current_depth: int, _cache: dict[str, str] | None 
             return _expr(node.formula, depth, current_depth + 1, _cache)
         if node.resolved_value is not None:
             return _scalar_str(node.resolved_value)
-        return at_ref  # unknown ref
+        return ref  # unknown ref
 
     # Plain scalar
     return _scalar_str(node)
