@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import openpyxl
@@ -46,7 +47,7 @@ def extract_formula_cells(path: str | Path) -> dict[str, FunctionNode]:
 def extract_formula_cells_from_workbook(wb: openpyxl.Workbook) -> dict[str, FunctionNode]:
     """Extract formula cells from an already-loaded workbook.
 
-    RefNode.value and RefNode.cached_value are left as None; call
+    RefNode.formula and RefNode.resolved_value are left as None; call
     _populate_ref_values() after loading a data_only workbook if needed.
     """
     result: dict[str, FunctionNode] = {}
@@ -148,7 +149,7 @@ def _build_table_ranges(wb) -> dict[str, dict]:
 def _build_named_ranges(wb) -> dict[str, str]:
     """Build a map of defined name → range text for all named ranges in the workbook.
 
-    Returns: { "SalesTotal": "Sheet1!$B$10" }
+    Returns: { "SalesTotal": "Sheet1!$B$2" }
     """
     result: dict[str, str] = {}
     for name in wb.defined_names:
@@ -165,10 +166,11 @@ def _populate_ref_values(
 ) -> None:
     """Walk every AST and fill ref node values.
 
-    - Formula-cell refs: value = FunctionNode of that cell; cached_value from data_only.
-    - Constant-cell refs: value = scalar from data_only; cached_value = same scalar.
+    - Formula-cell refs: formula = FunctionNode of that cell; resolved_value from data_only.
+    - Constant-cell refs: resolved_value = scalar from data_only; formula stays None.
+    - RangeNode: values populated from data_values for all cells in the range.
     - TableRefNode: resolved_range from table_ranges map.
-    - NamedRefNode: resolved_range from named_ranges map; value/cached_value if single cell.
+    - NamedRefNode: resolved_range from named_ranges map; formula/resolved_value if single cell.
     - Unknown refs: fields remain None.
     """
     known = set(cells)
@@ -183,15 +185,13 @@ def _fill_node(node, cells, data_values, known, table_ranges, named_ranges):
     elif isinstance(node, RefNode):
         ref = node.ref
         if ref in known:
-            node.value = cells[ref]
-            node.cached_value = data_values.get(ref)  # None for programmatic xlsx
+            node.formula = cells[ref]
+            node.resolved_value = data_values.get(ref)
         elif ref in data_values:
-            node.value = data_values[ref]
-            node.cached_value = data_values[ref]
+            node.resolved_value = data_values[ref]
         # else: both fields stay None
     elif isinstance(node, RangeNode):
-        _fill_node(node.start, cells, data_values, known, table_ranges, named_ranges)
-        _fill_node(node.end, cells, data_values, known, table_ranges, named_ranges)
+        node.values = _resolve_range_values(node.start, node.end, data_values)
     elif isinstance(node, TableRefNode):
         tbl = table_ranges.get(node.table_name)
         if tbl:
@@ -205,8 +205,45 @@ def _fill_node(node, cells, data_values, known, table_ranges, named_ranges):
             node.resolved_range = attr_text
             normalized = attr_text.replace("$", "")
             if normalized in known:
-                node.value = cells[normalized]
-                node.cached_value = data_values.get(normalized)
+                node.formula = cells[normalized]
+                node.resolved_value = data_values.get(normalized)
             elif normalized in data_values:
-                node.value = data_values[normalized]
-                node.cached_value = data_values[normalized]
+                node.resolved_value = data_values[normalized]
+
+
+_CELL_REF_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
+
+
+def _resolve_range_values(start: str, end: str, data_values: dict[str, object]) -> list[object] | None:
+    """Enumerate all cells in a rectangular range and return their values.
+
+    Returns None if the range endpoints can't be parsed as cell references
+    (e.g. whole-column ranges like A:B).
+    """
+    # Parse sheet and cell parts
+    if "!" in start:
+        sheet, start_cell = start.rsplit("!", 1)
+    else:
+        return None
+    if "!" in end:
+        _, end_cell = end.rsplit("!", 1)
+    else:
+        end_cell = end
+
+    m_start = _CELL_REF_RE.match(start_cell)
+    m_end = _CELL_REF_RE.match(end_cell)
+    if not m_start or not m_end:
+        return None
+
+    start_col_idx = column_index_from_string(m_start.group(1))
+    start_row = int(m_start.group(2))
+    end_col_idx = column_index_from_string(m_end.group(1))
+    end_row = int(m_end.group(2))
+
+    values = []
+    for row in range(start_row, end_row + 1):
+        for col_idx in range(start_col_idx, end_col_idx + 1):
+            col_letter = get_column_letter(col_idx)
+            ref = f"{sheet}!{col_letter}{row}"
+            values.append(data_values.get(ref))
+    return values

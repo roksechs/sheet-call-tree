@@ -41,8 +41,10 @@ def _collect_deps(node, deps: set[str], known: set[str]) -> None:
         for child in node.args:
             _collect_deps(child, deps, known)
     elif isinstance(node, RangeNode):
-        _collect_deps(node.start, deps, known)
-        _collect_deps(node.end, deps, known)
+        if node.start in known:
+            deps.add(node.start)
+        if node.end in known:
+            deps.add(node.end)
 
 
 def detect_cycles(graph: dict[str, set[str]]) -> None:

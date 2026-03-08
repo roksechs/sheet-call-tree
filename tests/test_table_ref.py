@@ -121,27 +121,27 @@ class TestTableRefSerialization:
         defaults.update(kw)
         return TableRefNode(**defaults)
 
-    def test_ref_mode_basic(self):
+    def test_depth0_basic(self):
         node = FunctionNode("SUM", [self._tref()])
-        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, ref_mode="ref"))
+        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, depth=0))
         formula = out["book"]["sheets"][0]["cells"][0]["formula"]
         assert formula == {"SUM": [{"TABLE_REF": {"name": "Table1", "column": "Amount"}}]}
 
-    def test_ref_mode_with_range(self):
+    def test_depth0_with_range(self):
         node = FunctionNode("SUM", [self._tref(resolved_range="Sheet1!B2:B3")])
-        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, ref_mode="ref"))
+        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, depth=0))
         tref_dict = out["book"]["sheets"][0]["cells"][0]["formula"]["SUM"][0]["TABLE_REF"]
         assert tref_dict["range"] == "Sheet1!B2:B3"
 
     def test_this_row_flag_present(self):
         node = self._tref(this_row=True)
-        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, ref_mode="ref"))
+        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, depth=0))
         tref_dict = out["book"]["sheets"][0]["cells"][0]["formula"]["TABLE_REF"]
         assert tref_dict["this_row"] is True
 
     def test_this_row_flag_absent_when_false(self):
         node = self._tref(this_row=False)
-        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, ref_mode="ref"))
+        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, depth=0))
         tref_dict = out["book"]["sheets"][0]["cells"][0]["formula"]["TABLE_REF"]
         assert "this_row" not in tref_dict
 
@@ -156,9 +156,3 @@ class TestTableRefSerialization:
         out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, ref_mode="inline"))
         formula = out["book"]["sheets"][0]["cells"][0]["formula"]
         assert formula == "TABLE_REF(Table1[@Amount])"
-
-    def test_value_mode_returns_cached(self):
-        node = self._tref(cached_value=42)
-        out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, ref_mode="value"))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert formula == 42

@@ -14,6 +14,7 @@ Specifies guaranteed performance properties:
 """
 from __future__ import annotations
 
+import math
 import time
 import tracemalloc
 from unittest.mock import patch
@@ -196,8 +197,8 @@ class TestInlineCache:
         results = []
         for i in range(200):
             ref = RefNode(ref="Sheet1!C1")
-            ref.value = hub_node
-            results.append(_expr(ref, cache))
+            ref.formula = hub_node
+            results.append(_expr(ref, math.inf, 0, cache))
 
         # All results must be identical (same expansion)
         assert len(set(results)) == 1, "Hub cell expanded to different strings across spokes"

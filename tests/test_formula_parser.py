@@ -24,7 +24,7 @@ def fn(name, *args):
 
 def rng(start, end):
     """Shorthand: RangeNode from two ref strings."""
-    return RangeNode(RefNode(start), RefNode(end))
+    return RangeNode(start, end)
 
 
 class TestOperands:

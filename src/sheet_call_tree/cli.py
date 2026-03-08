@@ -2,13 +2,22 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
+import warnings
 from pathlib import Path
 
 from ._i18n import get_strings
 from .dependency_graph import build_dependency_graph, detect_cycles
 from .reader import extract_formula_cells
 from .serializer import to_yaml
+
+
+def _parse_depth(value: str) -> float:
+    """Parse --depth value: integer or 'inf'."""
+    if value.lower() == "inf":
+        return math.inf
+    return int(value)
 
 
 def main(argv=None) -> int:
@@ -35,14 +44,39 @@ def main(argv=None) -> int:
         help=s["no_cycle"],
     )
     parser.add_argument(
+        "--depth",
+        metavar="N",
+        type=_parse_depth,
+        default=None,
+        help="Expansion depth: 0 = refs only (default), inf = full expansion.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["tree", "inline"],
+        default="tree",
+        dest="fmt",
+        help="Output format: tree (default) or inline.",
+    )
+    # Legacy --ref-mode (deprecated)
+    parser.add_argument(
         "--ref-mode",
-        choices=["ref", "ast", "value", "inline"],
-        default="ref",
+        choices=["ref", "ast", "inline"],
+        default=None,
         dest="ref_mode",
-        help=s["ref_mode"],
+        help=argparse.SUPPRESS,
     )
 
     args = parser.parse_args(argv)
+
+    # Handle legacy --ref-mode
+    ref_mode = None
+    depth = args.depth
+    fmt = args.fmt
+    if args.ref_mode is not None:
+        warnings.warn("--ref-mode is deprecated; use --depth and --format instead", DeprecationWarning, stacklevel=2)
+        ref_mode = args.ref_mode
+        if args.ref_mode == "inline":
+            fmt = "inline"
 
     formula_cells = extract_formula_cells(args.input)
 
@@ -61,9 +95,9 @@ def main(argv=None) -> int:
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
-            to_yaml(formula_cells, ref_mode=args.ref_mode, book_name=Path(args.input).name, stream=fh)
+            to_yaml(formula_cells, depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name, stream=fh)
     else:
-        print(to_yaml(formula_cells, ref_mode=args.ref_mode, book_name=Path(args.input).name), end="")
+        print(to_yaml(formula_cells, depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name), end="")
 
     return 0
 

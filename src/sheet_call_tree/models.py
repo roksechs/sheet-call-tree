@@ -1,7 +1,7 @@
 """Typed dataclasses for the formula AST."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union
 
 # Forward-declared via strings; resolved at runtime by Union.
@@ -16,15 +16,16 @@ class FunctionNode:
 
 @dataclass
 class RefNode:
-    ref: str                    # "Sheet1!A1"  (no @ sigil)
-    value: object = None        # scalar for constant cells; FunctionNode for formula cells; None if unknown
-    cached_value: object = None # data_only computed value (for --ref-mode value); None if unavailable
+    ref: str                          # "Sheet1!A1"  (no @ sigil)
+    formula: FunctionNode | None = None   # formula cell AST (None for constant/unknown)
+    resolved_value: object = None     # scalar value (constant cell value or cached compute)
 
 
 @dataclass
 class RangeNode:
-    start: RefNode
-    end: RefNode
+    start: str                            # "Sheet1!A1"
+    end: str                              # "Sheet1!A9"
+    values: list[object] | None = None    # all cell values in range (populated by reader)
 
 
 @dataclass
@@ -40,8 +41,8 @@ class TableRefNode:
 class NamedRefNode:
     name: str                  # "SalesTotal"
     resolved_range: str | None = None   # "Sheet1!$B$10"
-    value: object = None       # scalar or FunctionNode after resolution
-    cached_value: object = None
+    formula: FunctionNode | None = None   # formula cell AST after resolution
+    resolved_value: object = None         # scalar value
 
 
 @dataclass

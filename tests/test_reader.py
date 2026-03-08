@@ -38,8 +38,8 @@ def test_c5_ast_structure(simple_workbook):
     assert len(c5.args) == 1
     rng = c5.args[0]
     assert isinstance(rng, RangeNode)
-    assert rng.start.ref == "Sheet1!A1"
-    assert rng.end.ref == "Sheet1!A2"
+    assert rng.start == "Sheet1!A1"
+    assert rng.end == "Sheet1!A2"
 
 
 def test_b10_ast_structure(simple_workbook):
@@ -58,15 +58,14 @@ def test_reads_from_file(simple_workbook_path):
     assert "Sheet1!B10" in result
 
 
-def test_file_load_populates_constant_ref_values(simple_workbook_path):
-    """When loaded from file, constant-cell RefNodes get their scalar values."""
+def test_file_load_populates_range_values(simple_workbook_path):
+    """When loaded from file, RangeNode.values gets populated with cell values."""
     result = extract_formula_cells(simple_workbook_path)
     c5 = result["Sheet1!C5"]
     rng = c5.args[0]
     assert isinstance(rng, RangeNode)
-    # A1=10 and A2=20 are constant cells; their values should be populated
-    assert rng.start.value == 10
-    assert rng.end.value == 20
+    # A1=10 and A2=20 are constant cells; values should be populated
+    assert rng.values == [10, 20]
 
 
 def test_file_load_populates_formula_ref_values(simple_workbook_path):
@@ -74,8 +73,8 @@ def test_file_load_populates_formula_ref_values(simple_workbook_path):
     result = extract_formula_cells(simple_workbook_path)
     b10 = result["Sheet1!B10"]
     c5_ref = next(a for a in b10.args if isinstance(a, RefNode) and a.ref == "Sheet1!C5")
-    assert isinstance(c5_ref.value, FunctionNode)
-    assert c5_ref.value is result["Sheet1!C5"]
+    assert isinstance(c5_ref.formula, FunctionNode)
+    assert c5_ref.formula is result["Sheet1!C5"]
 
 
 def test_multi_sheet(multi_sheet_workbook):
