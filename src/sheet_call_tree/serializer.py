@@ -151,6 +151,7 @@ def to_yaml(
     ref_mode: str | None = None,
     book_name: str = "",
     data_values: dict[str, object] | None = None,
+    label_map: dict[str, dict[str, object]] | None = None,
     stream=None,
 ) -> str | None:
     """Convert a formula_cells dict to YAML.
@@ -164,6 +165,8 @@ def to_yaml(
         book_name:     Workbook filename for the top-level 'book.name' field.
         data_values:   Mapping of cell refs to cached scalar values (from
                        data_only workbook). Used to populate 'outputs' fields.
+        label_map:     Mapping of cell refs to label dicts with 'row' and
+                       'column' keys. Used to emit 'labels:' blocks.
         stream:        Optional writable stream. If provided, YAML is written
                        there and None is returned. Otherwise the YAML string
                        is returned.
@@ -176,6 +179,7 @@ def to_yaml(
         fmt = "inline"
     resolved_depth = _resolve_depth(depth, ref_mode)
     dv = data_values or {}
+    lm = label_map or {}
 
     is_inline = fmt == "inline"
     _inline_cache: dict[str, str] | None = {} if is_inline else None
@@ -189,14 +193,26 @@ def to_yaml(
         else:
             formula = _to_dict(node, resolved_depth, 0)
         cell_output = dv.get(full_ref)
-        sheets[sheet].append((cell, formula, cell_output))
+        cell_labels = lm.get(full_ref)
+        sheets[sheet].append((cell, formula, cell_output, cell_labels))
 
     buf: list[str] = ["book:\n", f"  name: {_ys(book_name)}\n", "  sheets:\n"]
     for sheet_name, cells in sheets.items():
         buf.append(f"  - name: {_ys(sheet_name)}\n")
         buf.append("    cells:\n")
-        for cell_ref, formula, cell_output in cells:
+        for cell_ref, formula, cell_output, cell_labels in cells:
             buf.append(f"    - cell: {_ys(cell_ref)}\n")
+            if cell_labels:
+                buf.append("      labels:\n")
+                for axis in ("row", "column"):
+                    if axis in cell_labels:
+                        val = cell_labels[axis]
+                        if isinstance(val, list):
+                            buf.append(f"        {axis}:\n")
+                            for item in val:
+                                buf.append(f"        - {_yscalar(item)}\n")
+                        else:
+                            buf.append(f"        {axis}: {_yscalar(val)}\n")
             if cell_output is not None:
                 buf.append(f"      outputs: {_yscalar(cell_output)}\n")
             if isinstance(formula, dict):

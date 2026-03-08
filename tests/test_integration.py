@@ -16,7 +16,7 @@ def _get_cell(parsed, sheet, cell):
 
 
 def test_yaml_output_structure(simple_workbook_path):
-    cells, dv = extract_formula_cells(simple_workbook_path)
+    cells, dv, *_ = extract_formula_cells(simple_workbook_path)
     output = to_yaml(cells, data_values=dv)
     parsed = yaml.safe_load(output)
 
@@ -31,7 +31,7 @@ def test_yaml_output_structure(simple_workbook_path):
 
 
 def test_c5_is_sum_node(simple_workbook_path):
-    cells, _ = extract_formula_cells(simple_workbook_path)
+    cells, *_ = extract_formula_cells(simple_workbook_path)
     c5 = cells["Sheet1!C5"]
     assert isinstance(c5, FunctionNode)
     assert c5.name == "SUM"
@@ -43,7 +43,7 @@ def test_c5_is_sum_node(simple_workbook_path):
 
 
 def test_b10_is_add_node(simple_workbook_path):
-    cells, _ = extract_formula_cells(simple_workbook_path)
+    cells, *_ = extract_formula_cells(simple_workbook_path)
     b10 = cells["Sheet1!B10"]
     assert isinstance(b10, FunctionNode)
     assert b10.name == "ADD"
@@ -54,7 +54,7 @@ def test_b10_is_add_node(simple_workbook_path):
 
 
 def test_b11_is_mul_node(simple_workbook_path):
-    cells, _ = extract_formula_cells(simple_workbook_path)
+    cells, *_ = extract_formula_cells(simple_workbook_path)
     b11 = cells["Sheet1!B11"]
     assert isinstance(b11, FunctionNode)
     assert b11.name == "MUL"
@@ -105,14 +105,14 @@ class TestDepth0:
     """depth=0: refs as plain strings (no @ sigil), no expansion."""
 
     def test_formula_refs_as_strings(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, depth=0, data_values=dv)
         parsed = yaml.safe_load(output)
         b10 = _get_cell(parsed, "Sheet1", "B10")
         assert b10["expression"] == {"type": "ADD", "inputs": ["Sheet1!C5", 1.1]}
 
     def test_range_ref_only(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, depth=0, data_values=dv)
         parsed = yaml.safe_load(output)
         c5 = _get_cell(parsed, "Sheet1", "C5")
@@ -137,7 +137,7 @@ class TestDepth1:
     """depth=1: expand one level of refs."""
 
     def test_formula_ref_expanded(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, depth=1, data_values=dv)
         parsed = yaml.safe_load(output)
         b10 = _get_cell(parsed, "Sheet1", "B10")
@@ -150,7 +150,7 @@ class TestDepth1:
         assert ref_entry["expression"] == {"type": "SUM", "inputs": ["Sheet1!A1:A2"]}
 
     def test_range_values_at_depth1(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, depth=1, data_values=dv)
         parsed = yaml.safe_load(output)
         c5 = _get_cell(parsed, "Sheet1", "C5")
@@ -162,7 +162,7 @@ class TestDepthInf:
     """depth=inf: fully expand all refs and range values."""
 
     def test_full_expansion(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, depth=math.inf, data_values=dv)
         parsed = yaml.safe_load(output)
         b10 = _get_cell(parsed, "Sheet1", "B10")
@@ -176,7 +176,7 @@ class TestDepthInf:
 
     def test_constant_ref_expanded(self, simple_workbook_path):
         """Constant-cell RefNodes show as {cell: ref, outputs: value} when depth allows."""
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, depth=math.inf, data_values=dv)
         parsed = yaml.safe_load(output)
         c5 = _get_cell(parsed, "Sheet1", "C5")
@@ -187,7 +187,7 @@ class TestDepth2:
     """depth=2: expand two levels."""
 
     def test_b10_depth2_has_range_values(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, depth=2, data_values=dv)
         parsed = yaml.safe_load(output)
         b10 = _get_cell(parsed, "Sheet1", "B10")
@@ -266,7 +266,7 @@ class TestRefModeRef:
     """Legacy ref_mode='ref' maps to depth=0."""
 
     def test_formula_refs_as_strings(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="ref", data_values=dv)
         parsed = yaml.safe_load(output)
         b10 = _get_cell(parsed, "Sheet1", "B10")
@@ -284,7 +284,7 @@ class TestRefModeAst:
     """Legacy ref_mode='ast' maps to depth=inf."""
 
     def test_formula_ref_expanded(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="ast", data_values=dv)
         parsed = yaml.safe_load(output)
         b10 = _get_cell(parsed, "Sheet1", "B10")
@@ -306,21 +306,21 @@ class TestRefModeInline:
     """Legacy ref_mode='inline' maps to format=inline + depth=inf."""
 
     def test_c5_inline(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="inline", data_values=dv)
         parsed = yaml.safe_load(output)
         c5 = _get_cell(parsed, "Sheet1", "C5")
         assert c5["expression"] == "SUM(10, 20)"
 
     def test_b10_inline_expands_c5(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="inline", data_values=dv)
         parsed = yaml.safe_load(output)
         b10 = _get_cell(parsed, "Sheet1", "B10")
         assert b10["expression"] == "ADD(SUM(10, 20), 1.1)"
 
     def test_b11_inline_expands_c5(self, simple_workbook_path):
-        cells, dv = extract_formula_cells(simple_workbook_path)
+        cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="inline", data_values=dv)
         parsed = yaml.safe_load(output)
         b11 = _get_cell(parsed, "Sheet1", "B11")

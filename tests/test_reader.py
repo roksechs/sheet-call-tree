@@ -53,14 +53,14 @@ def test_b10_ast_structure(simple_workbook):
 
 
 def test_reads_from_file(simple_workbook_path):
-    result, _ = extract_formula_cells(simple_workbook_path)
+    result, *_ = extract_formula_cells(simple_workbook_path)
     assert "Sheet1!C5" in result
     assert "Sheet1!B10" in result
 
 
 def test_file_load_populates_range_values(simple_workbook_path):
     """When loaded from file, RangeNode.values gets populated with cell values."""
-    result, _ = extract_formula_cells(simple_workbook_path)
+    result, *_ = extract_formula_cells(simple_workbook_path)
     c5 = result["Sheet1!C5"]
     rng = c5.args[0]
     assert isinstance(rng, RangeNode)
@@ -70,7 +70,7 @@ def test_file_load_populates_range_values(simple_workbook_path):
 
 def test_file_load_populates_formula_ref_values(simple_workbook_path):
     """When loaded from file, formula-cell RefNodes get the referenced FunctionNode."""
-    result, _ = extract_formula_cells(simple_workbook_path)
+    result, *_ = extract_formula_cells(simple_workbook_path)
     b10 = result["Sheet1!B10"]
     c5_ref = next(a for a in b10.args if isinstance(a, RefNode) and a.ref == "Sheet1!C5")
     assert isinstance(c5_ref.formula, FunctionNode)

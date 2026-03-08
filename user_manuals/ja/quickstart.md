@@ -42,30 +42,31 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-            ref: '@Sheet1!A1:A2'
+      expression:
+        type: SUM
+        inputs:
+        - Sheet1!A1:A2
     - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5'
+      expression:
+        type: ADD
+        inputs:
+        - Sheet1!C5
         - 1.1
     - cell: B11
-      formula:
-        MUL:
-        - '@Sheet1!C5'
+      expression:
+        type: MUL
+        inputs:
+        - Sheet1!C5
         - 2
 ```
 
 **出力の読み方：**
 
 - トップレベルの `book` キーがワークブックとシートでセルをグループ化します。
-- `cells` の各エントリには `cell` 座標（`B10`、`C5` など）と `formula` AST があります。
-- `ADD`、`MUL`、`SUM` は解析されたオペレーター/関数で、その引数は YAML のリストです。
-- `RANGE: {ref: '@Sheet1!A1:A2'}` は `A1:A2` を範囲参照として表します。深さ 0 では
-  セルの値は含まれません。
-- `'@Sheet1!C5'` は別の数式セルへのクロスリファレンスです。`@` プレフィックスにより通常の文字列と区別されます。
+- `cells` の各エントリには `cell` 座標（`B10`、`C5` など）と `expression` AST があります。
+- `expression` は `type`（関数/演算子名：`ADD`、`MUL`、`SUM` など）と `inputs`（引数の YAML リスト）を含みます。
+- `Sheet1!A1:A2` は範囲参照です。深さ 0 ではセルの値は含まれません。
+- `Sheet1!C5` は別の数式セルへのクロスリファレンスです。
 
 ## 3. 単一セルを詳しく調べる
 
@@ -82,9 +83,10 @@ book:
   - name: Sheet1
     cells:
     - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5'
+      expression:
+        type: ADD
+        inputs:
+        - Sheet1!C5
         - 1.1
 ```
 
@@ -103,38 +105,36 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-            ref: '@Sheet1!A1:A2'
-            values:
+      expression:
+        type: SUM
+        inputs:
+        - 10
+        - 20
+    - cell: B10
+      expression:
+        type: ADD
+        inputs:
+        - cell: Sheet1!C5
+          expression:
+            type: SUM
+            inputs:
             - 10
             - 20
-    - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5':
-            SUM:
-            - RANGE:
-                ref: '@Sheet1!A1:A2'
-                values:
-                - 10
-                - 20
         - 1.1
     - cell: B11
-      formula:
-        MUL:
-        - '@Sheet1!C5':
-            SUM:
-            - RANGE:
-                ref: '@Sheet1!A1:A2'
-                values:
-                - 10
-                - 20
+      expression:
+        type: MUL
+        inputs:
+        - cell: Sheet1!C5
+          expression:
+            type: SUM
+            inputs:
+            - 10
+            - 20
         - 2
 ```
 
-`@Sheet1!C5` キーにはフルのサブツリーが値として付加されており、別のエントリにジャンプすることなく完全な依存関係をインラインで読めます。`RANGE` ノードは解決済みのセル値を含む `values` を含んでいます。
+`Sheet1!C5` エントリにはフルのサブツリーが `expression` として付加されており、別のエントリにジャンプすることなく完全な依存関係をインラインで読めます。範囲の値は `inputs` リストに直接フラット化されます。
 
 ## 5. コンパクトな式文字列（`--format inline`）
 
@@ -151,16 +151,54 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula: SUM(RANGE(@Sheet1!A1:A2, [10, 20]))
+      expression: SUM(10, 20)
     - cell: B10
-      formula: ADD(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 1.1)
+      expression: ADD(SUM(10, 20), 1.1)
     - cell: B11
-      formula: MUL(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 2)
+      expression: MUL(SUM(10, 20), 2)
 ```
 
 コメントやチケットへの貼り付け、または素早い人間による読み取りに便利です。
 
-## 6. 出力をファイルに書き出す
+## 6. セマンティックラベル
+
+ワークブックにヘッダー行/列がある場合、ラベルが自動的に検出されます：
+
+```python
+import openpyxl
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Sheet1"
+ws["A1"] = "Name"; ws["B1"] = "Q1"; ws["C1"] = "Total"
+ws["A2"] = "Alice"; ws["B2"] = 100; ws["C2"] = "=SUM(B2:B2)"
+wb.save("labeled.xlsx")
+```
+
+```bash
+sheet-call-tree labeled.xlsx
+```
+
+```yaml
+book:
+  name: labeled.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: C2
+      labels:
+        row:
+        - Alice
+        column:
+        - Total
+      expression:
+        type: SUM
+        inputs:
+        - Sheet1!B2:B2
+```
+
+`labels` ブロックは最も近いヘッダーセルを表示します：`row` ラベルは左方向を走査、`column` ラベルは上方向を走査します。各方向最大 5 件の候補、重複除外済み。
+
+## 7. 出力をファイルに書き出す
 
 `--output` を使って YAML を標準出力ではなくファイルに保存します：
 

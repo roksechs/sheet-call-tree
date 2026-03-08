@@ -11,17 +11,18 @@ from sheet_call_tree import extract_formula_cells, to_yaml
 
 ---
 
-### `extract_formula_cells(path) -> dict[str, FunctionNode]`
+### `extract_formula_cells(path) -> tuple[dict, dict, dict]`
 
-Load an `.xlsx` file and return a mapping of cell references to their AST roots.
+Load an `.xlsx` file and return a 3-tuple of formula cells, data values, and label map.
 
 ```python
-cells = extract_formula_cells("myfile.xlsx")
+cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
 # cells == {
 #   'Sheet1!B10': FunctionNode(name='ADD', args=[RefNode(...), 1.1]),
-#   'Sheet1!B11': FunctionNode(name='MUL', args=[RefNode(...), 2]),
 #   'Sheet1!C5':  FunctionNode(name='SUM', args=[RangeNode(...)]),
 # }
+# data_values == {'Sheet1!A1': 10, 'Sheet1!A2': 20, ...}
+# label_map == {'Sheet1!D2': {'row': ['Alice'], 'column': ['Total']}, ...}
 ```
 
 **Parameters:**
@@ -30,39 +31,42 @@ cells = extract_formula_cells("myfile.xlsx")
 |-----------|------|-------------|
 | `path` | `str \| Path` | Path to the `.xlsx` file |
 
-**Returns:** `dict[str, FunctionNode]` — keys are `'SheetName!CellRef'` strings;
-values are the parsed AST root nodes for each formula cell.
+**Returns:** `tuple[dict[str, FunctionNode], dict[str, object], dict[str, dict]]`
+
+| Element | Type | Description |
+|---------|------|-------------|
+| `formula_cells` | `dict[str, FunctionNode]` | Keys are `'SheetName!CellRef'` strings; values are parsed AST roots |
+| `data_values` | `dict[str, object]` | Keys are cell refs; values are cached scalar values from `data_only` mode |
+| `label_map` | `dict[str, dict[str, object]]` | Keys are cell refs; values have `'row'` and `'column'` keys with lists of label strings (up to 5 per direction, nearest first) |
 
 **Behaviour:**
 - The workbook is loaded twice: once for formula text (`data_only=False`) and once for
   cached computed values (`data_only=True`).
-- Only formula cells (those whose value starts with `=`) appear as top-level keys.
+- Only formula cells (those whose value starts with `=`) appear in `formula_cells`.
 - Constant cells appear only as `RefNode` values inside formula ASTs.
-- `RefNode.formula` is populated with the referenced cell's `FunctionNode` (for formula
-  cells) or `None` (for constant/unknown cells). `RefNode.resolved_value` holds the
-  scalar value (constant cell value or `data_only` cached result; may be `None` for
-  programmatic workbooks).
+- `label_map` is built by a trained RandomForest classifier that identifies header vs data
+  cells, then scans for the nearest headers above and to the left of each formula cell.
 
 ---
 
-### `to_yaml(cells, *, depth=None, fmt="tree", book_name="", stream=None) -> str | None`
+### `to_yaml(cells, *, depth=None, fmt="tree", book_name="", data_values=None, label_map=None, stream=None) -> str | None`
 
 Serialise a `formula_cells` dict to YAML.
 
 ```python
 from sheet_call_tree import extract_formula_cells, to_yaml
 
-cells = extract_formula_cells("myfile.xlsx")
+cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
 
 # Return YAML string (depth 0, tree format)
-yaml_str = to_yaml(cells)
+yaml_str = to_yaml(cells, data_values=data_values, label_map=label_map)
 
 # Full expansion
-yaml_str = to_yaml(cells, depth=float('inf'))
+yaml_str = to_yaml(cells, depth=float('inf'), data_values=data_values, label_map=label_map)
 
 # Inline format
 with open("deps.yaml", "w") as fh:
-    to_yaml(cells, fmt="inline", stream=fh)
+    to_yaml(cells, fmt="inline", data_values=data_values, label_map=label_map, stream=fh)
 ```
 
 **Parameters:**
@@ -73,10 +77,33 @@ with open("deps.yaml", "w") as fh:
 | `depth` | `int \| float \| None` | `None` (→ 0) | Expansion depth: 0 = refs only, `inf` = full expansion |
 | `fmt` | `str` | `"tree"` | Output format: `"tree"` or `"inline"` |
 | `book_name` | `str` | `""` | Workbook filename for the top-level `book.name` field |
+| `data_values` | `dict[str, object] \| None` | `None` | Cached scalar values for `outputs` fields |
+| `label_map` | `dict[str, dict] \| None` | `None` | Label map for `labels` blocks |
 | `stream` | writable file object | `None` | If provided, YAML is written to the stream |
 | `ref_mode` | `str \| None` | `None` | *(deprecated)* Legacy rendering mode; use `depth`/`fmt` instead |
 
 **Returns:** YAML string when `stream` is `None`; `None` when `stream` is provided.
+
+**Output structure (tree format):**
+
+```yaml
+book:
+  name: myfile.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: D2
+      labels:
+        row:
+        - Alice
+        column:
+        - Total
+      outputs: 300
+      expression:
+        type: SUM
+        inputs:
+        - Sheet1!B2:C2
+```
 
 ---
 
@@ -109,6 +136,13 @@ class FunctionNode:
 Operators are normalised to their function names: `+` → `ADD`, `*` → `MUL`, `-` →
 `SUB` or unary `NEG`, `/` → `DIV`.
 
+In YAML tree output, renders as:
+```yaml
+type: SUM
+inputs:
+- Sheet1!A1:A2
+```
+
 ---
 
 ### `RefNode`
@@ -118,7 +152,7 @@ Represents a single-cell reference.
 ```python
 @dataclass
 class RefNode:
-    ref: str                              # "Sheet1!A1"  (no @ sigil)
+    ref: str                              # "Sheet1!A1"
     formula: FunctionNode | None = None   # formula cell AST (None for constant/unknown)
     resolved_value: object = None         # scalar value (constant cell value or cached compute)
 ```
@@ -127,9 +161,12 @@ class RefNode:
 
 | Field | Description |
 |-------|-------------|
-| `ref` | Fully-qualified cell reference string without the `@` prefix, e.g. `"Sheet1!C5"` |
+| `ref` | Fully-qualified cell reference string, e.g. `"Sheet1!C5"` |
 | `formula` | The cell's parsed AST: a `FunctionNode` for formula cells; `None` for constant cells or if the cell was not found in the workbook |
 | `resolved_value` | The scalar value: for constant cells this is the cell value (`int`, `float`, `str`, `bool`); for formula cells this is the `data_only` cached result (may be `None` for programmatic workbooks) |
+
+In YAML at depth 0: `Sheet1!C5`
+At depth > 0: `{cell: Sheet1!C5, expression: ...}`
 
 ---
 
@@ -151,7 +188,10 @@ class RangeNode:
 |-------|-------------|
 | `start` | Fully-qualified start cell reference string, e.g. `"Sheet1!A1"` |
 | `end` | Fully-qualified end cell reference string, e.g. `"Sheet1!A9"` |
-| `values` | List of all cell values in the range, or `None` if not populated. At depth > 0 these values appear in the YAML output. |
+| `values` | List of all cell values in the range, or `None` if not populated. At depth > 0 these values are flattened into the parent's `inputs` list. |
+
+In YAML at depth 0: `Sheet1!A1:A2`
+At depth > 0: values are flattened directly into parent `inputs`
 
 ---
 
@@ -181,11 +221,11 @@ class TableRefNode:
 
 In YAML tree output, renders as:
 ```yaml
-TABLE_REF:
-  name: Table1
-  column: Amount
-  this_row: true
-  range: Sheet1!D2:D100
+type: TABLE_REF
+name: Table1
+column: Amount
+this_row: true
+range: Sheet1!D2:D100
 ```
 
 In inline output, renders as: `TABLE_REF(Table1[@Amount])`
@@ -214,17 +254,19 @@ class NamedRefNode:
 | `formula` | The formula cell AST, if the named reference resolves to a formula cell |
 | `resolved_value` | The scalar value, if available |
 
-In YAML tree output at depth 0, renders as:
+In YAML tree output at depth 0:
 ```yaml
-NAMED_REF:
-  name: SalesTotal
-  range: Sheet1!$B$10
+type: NAMED_REF
+name: SalesTotal
+range: Sheet1!$B$10
 ```
 
 At depth > 0, if the named reference resolves to a formula, the AST is expanded:
 ```yaml
-NAMED_REF(SalesTotal):
-  SUM:
+named_ref: SalesTotal
+expression:
+  type: SUM
+  inputs:
   - ...
 ```
 
@@ -255,6 +297,7 @@ useful for advanced use cases.
 | `build_dependency_graph(formula_cells)` | `sheet_call_tree.dependency_graph` | Return a `dict[str, set[str]]` of cell dependencies |
 | `detect_cycles(graph)` | `sheet_call_tree.dependency_graph` | Raise `CircularReferenceError` if a cycle is found |
 | `CircularReferenceError` | `sheet_call_tree.dependency_graph` | Exception class; `.cycle` attribute holds the cycle as a list of cell refs |
+| `build_label_map(...)` | `sheet_call_tree.labeler` | Build label map using trained classifier |
 
 ---
 
@@ -284,7 +327,7 @@ def walk(node, depth=0):
         print(f"{indent}{node!r}")
 
 
-cells = extract_formula_cells("myfile.xlsx")
+cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
 for cell_ref, ast in cells.items():
     print(f"=== {cell_ref} ===")
     walk(ast)

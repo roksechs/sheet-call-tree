@@ -24,8 +24,8 @@ All examples use the same workbook:
 **Use when:** you want a compact dependency map where each formula-cell reference is a
 navigable cross-reference string. Good for human review and diff-friendly output.
 
-Formula-cell refs render as `'@SheetName!CellRef'` strings. Range references render as
-`RANGE: {ref: '@Sheet1!A1:A2'}` without resolved values.
+Formula-cell refs render as `Sheet1!C5` strings. Range references render as
+`Sheet1!A1:A2` strings.
 
 ```bash
 sheet-call-tree example.xlsx
@@ -38,25 +38,26 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-            ref: '@Sheet1!A1:A2'
+      expression:
+        type: SUM
+        inputs:
+        - Sheet1!A1:A2
     - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5'
+      expression:
+        type: ADD
+        inputs:
+        - Sheet1!C5
         - 1.1
     - cell: B11
-      formula:
-        MUL:
-        - '@Sheet1!C5'
+      expression:
+        type: MUL
+        inputs:
+        - Sheet1!C5
         - 2
 ```
 
 `B10` calls `ADD` with two arguments: a reference to the formula cell `Sheet1!C5`
 and the constant `1.1`. `C5` appears as its own `cells` entry with its full AST.
-The `RANGE` node shows the range reference without expanding the values.
 
 ---
 
@@ -65,8 +66,9 @@ The `RANGE` node shows the range reference without expanding the values.
 **Use when:** you want the full dependency tree expanded in place, without needing to
 follow cross-references. Useful for detailed analysis or feeding into downstream tools.
 
-Formula-cell refs render as a single-key mapping `{'@SheetName!CellRef': <sub-tree>}`,
-embedding the referenced cell's AST inline. Range references include resolved `values`.
+Formula-cell refs render as `{cell: Sheet1!C5, expression: ...}` mappings,
+embedding the referenced cell's AST inline. Range values are flattened into the
+parent function's inputs.
 
 ```bash
 sheet-call-tree example.xlsx --depth inf
@@ -79,40 +81,38 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-            ref: '@Sheet1!A1:A2'
-            values:
+      expression:
+        type: SUM
+        inputs:
+        - 10
+        - 20
+    - cell: B10
+      expression:
+        type: ADD
+        inputs:
+        - cell: Sheet1!C5
+          expression:
+            type: SUM
+            inputs:
             - 10
             - 20
-    - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5':
-            SUM:
-            - RANGE:
-                ref: '@Sheet1!A1:A2'
-                values:
-                - 10
-                - 20
         - 1.1
     - cell: B11
-      formula:
-        MUL:
-        - '@Sheet1!C5':
-            SUM:
-            - RANGE:
-                ref: '@Sheet1!A1:A2'
-                values:
-                - 10
-                - 20
+      expression:
+        type: MUL
+        inputs:
+        - cell: Sheet1!C5
+          expression:
+            type: SUM
+            inputs:
+            - 10
+            - 20
         - 2
 ```
 
-The `@Sheet1!C5` key carries its full `SUM(RANGE(...))` sub-tree as its value,
+The `Sheet1!C5` entry carries its full `SUM(...)` sub-tree as its `expression`,
 visible directly inside `B10` and `B11` without jumping to another entry.
-The `RANGE` node now includes the `values` list with the resolved cell values.
+Range values (`10`, `20`) are flattened into the `inputs` list.
 
 ---
 
@@ -123,7 +123,7 @@ expression string per cell for pasting into comments, tickets, or logs.
 
 Each formula cell's entire dependency tree is rendered as a single
 `FUNC(arg1, arg2, …)` expression string. The `--depth` parameter controls whether
-references are expanded or kept as `@`-prefixed strings.
+references are expanded or kept as reference strings.
 
 ### Inline at depth 0 (default)
 
@@ -138,11 +138,11 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula: SUM(RANGE(@Sheet1!A1:A2))
+      expression: SUM(Sheet1!A1:A2)
     - cell: B10
-      formula: ADD(@Sheet1!C5, 1.1)
+      expression: ADD(Sheet1!C5, 1.1)
     - cell: B11
-      formula: MUL(@Sheet1!C5, 2)
+      expression: MUL(Sheet1!C5, 2)
 ```
 
 ### Inline at depth inf (fully expanded)
@@ -158,15 +158,39 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula: SUM(RANGE(@Sheet1!A1:A2, [10, 20]))
+      expression: SUM(10, 20)
     - cell: B10
-      formula: ADD(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 1.1)
+      expression: ADD(SUM(10, 20), 1.1)
     - cell: B11
-      formula: MUL(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 2)
+      expression: MUL(SUM(10, 20), 2)
 ```
 
 Note that `C5` is fully inlined into `B10` and `B11` —
-`ADD(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 1.1)` — rather than referenced by name.
+`ADD(SUM(10, 20), 1.1)` — rather than referenced by name.
+
+---
+
+## Semantic labels
+
+When a workbook has header rows or columns, `sheet-call-tree` automatically detects
+them using a trained classifier and emits `labels` for each formula cell:
+
+```yaml
+- cell: D2
+  labels:
+    row:
+    - Alice
+    column:
+    - Total
+  expression:
+    type: SUM
+    inputs:
+    - Sheet1!B2:C2
+```
+
+Each label list contains up to 5 candidates, nearest first, deduplicated. `row` labels
+come from scanning left in the same row; `column` labels from scanning up in the same
+column.
 
 ---
 
@@ -174,8 +198,8 @@ Note that `C5` is fully inlined into `B10` and `B11` —
 
 A cell is a *constant cell* if its value is a plain scalar (number, string, boolean),
 not a formula. In all modes, constant-cell refs resolve directly to their scalar
-value. In the examples above, `A1=10` and `A2=20` appear inside the `RANGE` node's
-`values` list (at depth > 0) or are omitted (at depth 0).
+value. In the examples above, `A1=10` and `A2=20` are flattened into the `inputs`
+list at depth > 0, or omitted at depth 0.
 
 ---
 

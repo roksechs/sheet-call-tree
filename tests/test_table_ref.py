@@ -92,14 +92,14 @@ class TestTableRangeBuilding:
 
 class TestTableRefResolution:
     def test_column_ref_resolved(self, table_workbook_path):
-        cells, _ = extract_formula_cells(table_workbook_path)
+        cells, *_ = extract_formula_cells(table_workbook_path)
         c2 = cells["Sheet1!C2"]
         tref = c2.args[0]
         assert isinstance(tref, TableRefNode)
         assert tref.resolved_range == "Sheet1!B2:B3"
 
     def test_this_row_ref_resolved(self, table_workbook_path):
-        cells, _ = extract_formula_cells(table_workbook_path)
+        cells, *_ = extract_formula_cells(table_workbook_path)
         d2 = cells["Sheet1!D2"]
         assert isinstance(d2, FunctionNode)
         tref = d2.args[0]
