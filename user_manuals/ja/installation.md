@@ -8,7 +8,7 @@
 ## GitHub からインストール
 
 ```bash
-uv pip install git+https://github.com/roksechs/sheet-call-tree.git
+uv tool install git+https://github.com/roksechs/sheet-call-tree.git
 ```
 
 ## ソースからインストール（開発用の編集可能インストール）
@@ -18,11 +18,10 @@ uv pip install git+https://github.com/roksechs/sheet-call-tree.git
 ```bash
 git clone https://github.com/roksechs/sheet-call-tree.git
 cd sheet-call-tree
-uv venv --clear
-uv pip install -e ".[dev]"
+uv sync --dev
 ```
 
-`[dev]` エクストラは、テストスイートを実行するための `pytest` と `pytest-cov` を追加します。
+`--dev` フラグにより、テストスイートを実行するための `pytest` と `pytest-cov` が含まれます。
 
 ## インストールの確認
 
