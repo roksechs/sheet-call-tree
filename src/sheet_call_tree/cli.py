@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from ._i18n import get_strings
 from .dependency_graph import build_dependency_graph, detect_cycles
@@ -60,9 +61,9 @@ def main(argv=None) -> int:
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
-            to_yaml(formula_cells, ref_mode=args.ref_mode, stream=fh)
+            to_yaml(formula_cells, ref_mode=args.ref_mode, book_name=Path(args.input).name, stream=fh)
     else:
-        print(to_yaml(formula_cells, ref_mode=args.ref_mode), end="")
+        print(to_yaml(formula_cells, ref_mode=args.ref_mode, book_name=Path(args.input).name), end="")
 
     return 0
 

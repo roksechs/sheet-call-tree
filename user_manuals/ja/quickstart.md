@@ -36,29 +36,36 @@ sheet-call-tree example.xlsx
 出力（デフォルトの `ref` モード）：
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5'
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5'
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5'
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5'
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
 **出力の読み方：**
 
-- トップレベルのキー（`Sheet1!B10`、`Sheet1!B11`、`Sheet1!C5`）は数式セルです。
-- 値はそのセルの数式の解析済み AST です。
+- トップレベルの `book` キーがワークブックとシートでセルをグループ化します。
+- `cells` の各エントリには `cell` 座標（`B10`、`C5` など）と `formula` AST があります。
 - `ADD`、`MUL`、`SUM` は解析されたオペレーター/関数で、その引数は YAML のリストです。
 - `RANGE: [10, 20]` は `A1:A2` を表し、両端点がスカラー値に解決されています。
 - `'@Sheet1!C5'` は別の数式セルへのクロスリファレンスです。`@` プレフィックスにより通常の文字列と区別されます。
-- 出力キーはアルファベット順にソートされています（`Sheet1!B10` < `Sheet1!B11` < `Sheet1!C5`）。
 
 ## 3. 単一セルを詳しく調べる
 
@@ -69,10 +76,16 @@ sheet-call-tree example.xlsx --filter Sheet1!B10
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5'
-  - 1.1
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5'
+        - 1.1
 ```
 
 ## 4. フル AST をインラインで展開する（`--ref-mode ast`）
@@ -84,27 +97,35 @@ sheet-call-tree example.xlsx --ref-mode ast
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5':
-      SUM:
-      - RANGE:
-        - 10
-        - 20
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5':
-      SUM:
-      - RANGE:
-        - 10
-        - 20
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5':
+            SUM:
+            - RANGE:
+              - 10
+              - 20
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5':
+            SUM:
+            - RANGE:
+              - 10
+              - 20
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
 `@Sheet1!C5` キーにはフルのサブツリーが値として付加されており、別のエントリにジャンプすることなく完全な依存関係をインラインで読めます。
@@ -118,9 +139,17 @@ sheet-call-tree example.xlsx --ref-mode inline
 ```
 
 ```yaml
-Sheet1!B10: ADD(SUM(RANGE(10, 20)), 1.1)
-Sheet1!B11: MUL(SUM(RANGE(10, 20)), 2)
-Sheet1!C5: SUM(RANGE(10, 20))
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula: ADD(SUM(RANGE(10, 20)), 1.1)
+    - cell: B11
+      formula: MUL(SUM(RANGE(10, 20)), 2)
+    - cell: C5
+      formula: SUM(RANGE(10, 20))
 ```
 
 コメントやチケットへの貼り付け、または素早い人間による読み取りに便利です。

@@ -40,24 +40,32 @@ sheet-call-tree myfile.xlsx
 Output:
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5'
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5'
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: myfile.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5'
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5'
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
-Each formula cell becomes a top-level YAML key. Its value is the parsed AST of the
-formula, with constant cell references resolved to scalars and formula cell references
-shown as `@Sheet!Cell` strings (in the default `ref` mode).
+The output is grouped as `book → sheets → cells`. Each cell entry has a `cell` coordinate
+and a `formula` with the parsed AST. Constant cell references resolve to scalars; formula
+cell references appear as `@Sheet!Cell` strings (in the default `ref` mode).
 
 ## CLI flag overview
 

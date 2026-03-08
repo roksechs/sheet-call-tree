@@ -25,22 +25,30 @@ sheet-call-tree example.xlsx
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5'
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5'
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5'
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5'
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
-`Sheet1!B10` は `ADD` を 2 つの引数で呼び出しています：数式セル `Sheet1!C5` への参照と定数 `1.1` です。`Sheet1!C5` はフル AST を持つ独立したトップレベルエントリとして現れます。
+`B10` は `ADD` を 2 つの引数で呼び出しています：数式セル `Sheet1!C5` への参照と定数 `1.1` です。`C5` はフル AST を持つ独立した `cells` エントリとして現れます。
 
 ---
 
@@ -55,30 +63,38 @@ sheet-call-tree example.xlsx --ref-mode ast
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5':
-      SUM:
-      - RANGE:
-        - 10
-        - 20
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5':
-      SUM:
-      - RANGE:
-        - 10
-        - 20
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5':
+            SUM:
+            - RANGE:
+              - 10
+              - 20
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5':
+            SUM:
+            - RANGE:
+              - 10
+              - 20
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
-`@Sheet1!C5` キーはフルの `SUM(RANGE(10, 20))` サブツリーを値として持ち、別のエントリにジャンプすることなく `Sheet1!B10` と `Sheet1!B11` の中で直接確認できます。
+`@Sheet1!C5` キーはフルの `SUM(RANGE(10, 20))` サブツリーを値として持ち、別のエントリにジャンプすることなく `B10` と `B11` の中で直接確認できます。
 
 ---
 
@@ -93,19 +109,27 @@ sheet-call-tree example.xlsx --ref-mode value
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - null
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - null
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - null
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - null
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
 `Sheet1!C5` 参照の `null` 値は、サンプルワークブックがプログラムで作成されており、キャッシュ済みの数式結果がないために現れます。Excel で保存されたワークブックでは、ここに実際のスカラー値が入ります。
@@ -123,12 +147,20 @@ sheet-call-tree example.xlsx --ref-mode inline
 ```
 
 ```yaml
-Sheet1!B10: ADD(SUM(RANGE(10, 20)), 1.1)
-Sheet1!B11: MUL(SUM(RANGE(10, 20)), 2)
-Sheet1!C5: SUM(RANGE(10, 20))
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula: ADD(SUM(RANGE(10, 20)), 1.1)
+    - cell: B11
+      formula: MUL(SUM(RANGE(10, 20)), 2)
+    - cell: C5
+      formula: SUM(RANGE(10, 20))
 ```
 
-`Sheet1!C5` は `Sheet1!B10` と `Sheet1!B11` に完全にインライン展開されていることに注意してください — `ADD(SUM(RANGE(10, 20)), 1.1)` — 名前で参照されるのではなく直接埋め込まれています。
+`C5` は `B10` と `B11` に完全にインライン展開されていることに注意してください — `ADD(SUM(RANGE(10, 20)), 1.1)` — 名前で参照されるのではなく直接埋め込まれています。
 
 ---
 

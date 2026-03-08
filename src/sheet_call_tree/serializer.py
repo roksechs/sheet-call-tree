@@ -15,9 +15,15 @@ from .models import FunctionNode, RangeNode, RefNode
 _REF_MODES = {"ref", "ast", "value", "inline"}
 
 
+class _NoAliasDumper(yaml.Dumper):
+    def ignore_aliases(self, data):
+        return True
+
+
 def to_yaml(
     formula_cells: dict[str, object],
     ref_mode: str = "ref",
+    book_name: str = "",
     stream=None,
 ) -> str | None:
     """Convert a formula_cells dict to YAML.
@@ -26,6 +32,7 @@ def to_yaml(
         formula_cells: Mapping of cell ref strings to FunctionNode AST roots.
         ref_mode:      How to render formula-cell references.
                        One of 'ref' (default), 'ast', 'value', 'inline'.
+        book_name:     Workbook filename for the top-level 'book.name' field.
         stream:        Optional writable stream. If provided, YAML is written
                        there and None is returned. Otherwise the YAML string
                        is returned.
@@ -36,19 +43,35 @@ def to_yaml(
     if ref_mode not in _REF_MODES:
         raise ValueError(f"ref_mode must be one of {sorted(_REF_MODES)}, got {ref_mode!r}")
 
-    serialized: dict[str, object] = {}
-    for ref, node in formula_cells.items():
+    # Group cells by sheet name, preserving insertion order.
+    sheets: dict[str, list[dict]] = {}
+    for full_ref, node in formula_cells.items():
+        sheet, cell = full_ref.split("!", 1)
+        if sheet not in sheets:
+            sheets[sheet] = []
         if ref_mode == "inline":
-            serialized[ref] = _expr(node)
+            formula = _expr(node)
         else:
-            serialized[ref] = _to_dict(node, ref_mode)
+            formula = _to_dict(node, ref_mode)
+        sheets[sheet].append({"cell": cell, "formula": formula})
+
+    document = {
+        "book": {
+            "name": book_name,
+            "sheets": [
+                {"name": sheet_name, "cells": cells}
+                for sheet_name, cells in sheets.items()
+            ],
+        }
+    }
 
     return yaml.dump(
-        serialized,
+        document,
+        Dumper=_NoAliasDumper,
         stream=stream,
         default_flow_style=False,
         allow_unicode=True,
-        sort_keys=True,
+        sort_keys=False,
     )
 
 
