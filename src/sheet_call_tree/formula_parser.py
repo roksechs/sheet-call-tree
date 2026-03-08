@@ -21,10 +21,11 @@ Token types from openpyxl Tokenizer:
 from __future__ import annotations
 
 import logging
+import re
 
 from openpyxl.formula import Tokenizer
 
-from .models import FunctionNode, RangeNode, RefNode
+from .models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,29 @@ _PREFIX_NODES: dict[str, str] = {"-": "NEG", "+": "POS"}
 # ---------------------------------------------------------------------------
 # Token → operand conversion
 # ---------------------------------------------------------------------------
+
+_CELL_RE = re.compile(r"^(\$?[A-Za-z]+\$?\d+)(:\$?[A-Za-z]+\$?\d+)?$")
+
+
+def _is_cell_ref(val: str) -> bool:
+    """Return True if val matches a cell/range coordinate after stripping sheet qualifier and $."""
+    bare = val.split("!")[-1].replace("$", "")
+    return bool(_CELL_RE.match(bare))
+
+
+def _parse_table_ref(val: str) -> TableRefNode:
+    """'Table1[Column]' or 'Table1[@Column]' → TableRefNode (unresolved)."""
+    table_name, rest = val.split("[", 1)
+    column = rest.rstrip("]")
+    this_row = column.startswith("@")
+    if this_row:
+        column = column[1:]
+    return TableRefNode(
+        table_name=table_name,
+        column=column if column else None,
+        this_row=this_row,
+    )
+
 
 def _qualify(ref: str, sheet: str) -> str:
     """Qualify a cell reference as 'Sheet!Ref' (no @ sigil)."""
@@ -79,7 +103,11 @@ def _make_operand(tok, sheet: str):
     sub = tok.subtype
     val = tok.value
     if sub == "RANGE":
-        return _parse_range_token(val, sheet)
+        if "[" in val:
+            return _parse_table_ref(val)
+        if ":" in val or "!" in val or _is_cell_ref(val):
+            return _parse_range_token(val, sheet)
+        return NamedRefNode(name=val.replace("$", ""))
     if sub == "NUMBER":
         v = float(val)
         return int(v) if v == int(v) else v
