@@ -33,7 +33,7 @@ wb.save("example.xlsx")
 sheet-call-tree example.xlsx
 ```
 
-出力（デフォルトの `ref` モード）：
+出力（デフォルト：深さ 0、ツリーフォーマット）：
 
 ```yaml
 book:
@@ -41,6 +41,11 @@ book:
   sheets:
   - name: Sheet1
     cells:
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+            ref: '@Sheet1!A1:A2'
     - cell: B10
       formula:
         ADD:
@@ -51,12 +56,6 @@ book:
         MUL:
         - '@Sheet1!C5'
         - 2
-    - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-          - 10
-          - 20
 ```
 
 **出力の読み方：**
@@ -64,7 +63,8 @@ book:
 - トップレベルの `book` キーがワークブックとシートでセルをグループ化します。
 - `cells` の各エントリには `cell` 座標（`B10`、`C5` など）と `formula` AST があります。
 - `ADD`、`MUL`、`SUM` は解析されたオペレーター/関数で、その引数は YAML のリストです。
-- `RANGE: [10, 20]` は `A1:A2` を表し、両端点がスカラー値に解決されています。
+- `RANGE: {ref: '@Sheet1!A1:A2'}` は `A1:A2` を範囲参照として表します。深さ 0 では
+  セルの値は含まれません。
 - `'@Sheet1!C5'` は別の数式セルへのクロスリファレンスです。`@` プレフィックスにより通常の文字列と区別されます。
 
 ## 3. 単一セルを詳しく調べる
@@ -88,12 +88,12 @@ book:
         - 1.1
 ```
 
-## 4. フル AST をインラインで展開する（`--ref-mode ast`）
+## 4. フル AST をインラインで展開する（`--depth inf`）
 
-`ref` モードはクロスリファレンスをコンパクトに保ちます。`--ref-mode ast` を使うと、参照された数式セルのサブツリーをその場で展開します：
+デフォルトの深さ（0）ではクロスリファレンスがコンパクトに保たれます。`--depth inf` を使うと、参照された数式セルのサブツリーをその場で展開します：
 
 ```bash
-sheet-call-tree example.xlsx --ref-mode ast
+sheet-call-tree example.xlsx --depth inf
 ```
 
 ```yaml
@@ -102,14 +102,24 @@ book:
   sheets:
   - name: Sheet1
     cells:
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+            ref: '@Sheet1!A1:A2'
+            values:
+            - 10
+            - 20
     - cell: B10
       formula:
         ADD:
         - '@Sheet1!C5':
             SUM:
             - RANGE:
-              - 10
-              - 20
+                ref: '@Sheet1!A1:A2'
+                values:
+                - 10
+                - 20
         - 1.1
     - cell: B11
       formula:
@@ -117,25 +127,21 @@ book:
         - '@Sheet1!C5':
             SUM:
             - RANGE:
-              - 10
-              - 20
+                ref: '@Sheet1!A1:A2'
+                values:
+                - 10
+                - 20
         - 2
-    - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-          - 10
-          - 20
 ```
 
-`@Sheet1!C5` キーにはフルのサブツリーが値として付加されており、別のエントリにジャンプすることなく完全な依存関係をインラインで読めます。
+`@Sheet1!C5` キーにはフルのサブツリーが値として付加されており、別のエントリにジャンプすることなく完全な依存関係をインラインで読めます。`RANGE` ノードは解決済みのセル値を含む `values` を含んでいます。
 
-## 5. コンパクトな式文字列（`--ref-mode inline`）
+## 5. コンパクトな式文字列（`--format inline`）
 
-`inline` モードは各セルを単一の完全展開済み式文字列として表示します：
+`inline` フォーマットは各セルを単一の完全展開済み式文字列として表示します：
 
 ```bash
-sheet-call-tree example.xlsx --ref-mode inline
+sheet-call-tree example.xlsx --format inline --depth inf
 ```
 
 ```yaml
@@ -144,12 +150,12 @@ book:
   sheets:
   - name: Sheet1
     cells:
-    - cell: B10
-      formula: ADD(SUM(RANGE(10, 20)), 1.1)
-    - cell: B11
-      formula: MUL(SUM(RANGE(10, 20)), 2)
     - cell: C5
-      formula: SUM(RANGE(10, 20))
+      formula: SUM(RANGE(@Sheet1!A1:A2, [10, 20]))
+    - cell: B10
+      formula: ADD(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 1.1)
+    - cell: B11
+      formula: MUL(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 2)
 ```
 
 コメントやチケットへの貼り付け、または素早い人間による読み取りに便利です。
@@ -167,5 +173,5 @@ sheet-call-tree example.xlsx --output result.yaml
 ## 次のステップ
 
 - [CLI リファレンス](cli-reference.md) — 全フラグのドキュメント
-- [出力フォーマット](output-formats.md) — 4 つの `--ref-mode` 値と例
+- [出力フォーマット](output-formats.md) — 深さベースの展開とフォーマットオプションの例
 - [Python API](python-api.md) — `sheet-call-tree` をライブラリとして使用する

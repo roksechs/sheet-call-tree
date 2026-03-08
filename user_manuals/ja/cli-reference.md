@@ -40,20 +40,41 @@ sheet-call-tree myfile.xlsx --output deps.yaml
 sheet-call-tree myfile.xlsx --no-cycle-check
 ```
 
-### `--ref-mode {ref,ast,value,inline}`
+### `--depth N`
 
-YAML 出力における数式セル参照の描画方法を制御します。デフォルト: `ref`。
+数式セル参照の展開の深さを制御します。デフォルト: `0`。
 
 | 値 | 説明 |
 |----|------|
-| `ref` | `@` プレフィックス付きのクロスリファレンス文字列（例: `'@Sheet1!C5'`） |
-| `ast` | `@` プレフィックス付きの名前をキーとし、展開したサブツリーを値とするマッピング |
-| `value` | Excel の `data_only` ワークブックからのキャッシュ済みスカラー値。キャッシュがない場合は `null` |
+| `0` | 参照のみ — 数式セル参照は `'@Sheet1!C5'` クロスリファレンス文字列として表示；範囲参照は `RANGE: {ref: '@Sheet1!A1:A2'}` として値なしで表示 |
+| `inf` | 完全展開 — 数式セル参照は `{'@Sheet1!C5': <サブツリー>}` として AST をその場で展開；範囲参照は解決済みの `values` を含む |
+
+中間の整数値（1、2、…）はそのレベル数まで展開します。
+
+各モードの具体的な YAML 例については [output-formats.md](output-formats.md) を参照してください。
+
+### `--format {tree,inline}`
+
+出力フォーマットを制御します。デフォルト: `tree`。
+
+| 値 | 説明 |
+|----|------|
+| `tree` | ネストされた YAML 構造（デフォルト） |
 | `inline` | 各セルを単一の `FUNC(arg1, arg2, …)` 式文字列として出力 |
 
 定数セル参照（数式ではなく通常の値を含むセル）はどのモードでも常にスカラー値に解決されます。
 
-各モードの具体的な YAML 例については [output-formats.md](output-formats.md) を参照してください。
+### `--ref-mode`（非推奨）
+
+レガシーの `--ref-mode` フラグは後方互換性のために引き続き使用できますが、`--help` には表示されません。
+
+| レガシー値 | 同等の設定 |
+|-----------|-----------|
+| `ref` | `--depth 0` |
+| `ast` | `--depth inf` |
+| `inline` | `--format inline --depth inf` |
+
+`value` モードは削除されました。
 
 ## 終了コード
 
