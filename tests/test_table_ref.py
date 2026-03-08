@@ -23,8 +23,8 @@ class TestTableRefParsing:
     def test_column_ref(self):
         node = p("=SUM(Table1[Amount])")
         assert isinstance(node, FunctionNode)
-        assert node.name == "SUM"
-        tref = node.args[0]
+        assert node.type == "SUM"
+        tref = node.inputs[0]
         assert isinstance(tref, TableRefNode)
         assert tref.table_name == "Table1"
         assert tref.column == "Amount"
@@ -39,7 +39,7 @@ class TestTableRefParsing:
 
     def test_whole_table_ref(self):
         node = p("=SUM(Table1[])")
-        tref = node.args[0]
+        tref = node.inputs[0]
         assert isinstance(tref, TableRefNode)
         assert tref.table_name == "Table1"
         assert tref.column is None
@@ -47,19 +47,19 @@ class TestTableRefParsing:
 
     def test_unresolved_range_is_none(self):
         node = p("=SUM(Table1[Amount])")
-        assert node.args[0].resolved_range is None
+        assert node.inputs[0].resolved_range is None
 
     def test_table_ref_in_arithmetic(self):
         node = p("=Table1[@Amount]*2")
         assert isinstance(node, FunctionNode)
-        assert node.name == "MUL"
-        tref = node.args[0]
+        assert node.type == "MUL"
+        tref = node.inputs[0]
         assert isinstance(tref, TableRefNode)
         assert tref.this_row is True
 
     def test_non_ascii_column_name(self):
         node = p("=SUM(売上テーブル[金額])")
-        tref = node.args[0]
+        tref = node.inputs[0]
         assert isinstance(tref, TableRefNode)
         assert tref.table_name == "売上テーブル"
         assert tref.column == "金額"
@@ -94,7 +94,7 @@ class TestTableRefResolution:
     def test_column_ref_resolved(self, table_workbook_path):
         cells, *_ = extract_formula_cells(table_workbook_path)
         c2 = cells["Sheet1!C2"]
-        tref = c2.args[0]
+        tref = c2.inputs[0]
         assert isinstance(tref, TableRefNode)
         assert tref.resolved_range == "Sheet1!B2:B3"
 
@@ -102,7 +102,7 @@ class TestTableRefResolution:
         cells, *_ = extract_formula_cells(table_workbook_path)
         d2 = cells["Sheet1!D2"]
         assert isinstance(d2, FunctionNode)
-        tref = d2.args[0]
+        tref = d2.inputs[0]
         assert isinstance(tref, TableRefNode)
         # this_row ref resolves to the same column range (not row-specific)
         assert tref.resolved_range == "Sheet1!B2:B3"
@@ -110,7 +110,7 @@ class TestTableRefResolution:
     def test_unresolved_when_no_table_map(self, table_workbook):
         cells = extract_formula_cells_from_workbook(table_workbook)
         c2 = cells["Sheet1!C2"]
-        tref = c2.args[0]
+        tref = c2.inputs[0]
         assert isinstance(tref, TableRefNode)
         assert tref.resolved_range is None
 

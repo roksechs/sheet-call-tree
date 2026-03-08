@@ -5,7 +5,7 @@ import math
 import yaml
 
 from sheet_call_tree.cli import main
-from sheet_call_tree.models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
+from sheet_call_tree.models import CellNode, FunctionNode, NamedRefNode, RangeNode, TableRefNode
 from sheet_call_tree.reader import extract_formula_cells
 from sheet_call_tree.serializer import to_json, to_yaml
 
@@ -35,9 +35,9 @@ def test_c5_is_sum_node(simple_workbook_path):
     cells, *_ = extract_formula_cells(simple_workbook_path)
     c5 = cells["Sheet1!C5"]
     assert isinstance(c5, FunctionNode)
-    assert c5.name == "SUM"
-    assert len(c5.args) == 1
-    rng = c5.args[0]
+    assert c5.type == "SUM"
+    assert len(c5.inputs) == 1
+    rng = c5.inputs[0]
     assert isinstance(rng, RangeNode)
     assert rng.start == "Sheet1!A1"
     assert rng.end == "Sheet1!A2"
@@ -47,10 +47,10 @@ def test_b10_is_add_node(simple_workbook_path):
     cells, *_ = extract_formula_cells(simple_workbook_path)
     b10 = cells["Sheet1!B10"]
     assert isinstance(b10, FunctionNode)
-    assert b10.name == "ADD"
-    refs = [a for a in b10.args if isinstance(a, RefNode)]
-    assert any(r.ref == "Sheet1!C5" for r in refs)
-    floats = [a for a in b10.args if isinstance(a, float)]
+    assert b10.type == "ADD"
+    refs = [a for a in b10.inputs if isinstance(a, CellNode)]
+    assert any(r.cell == "Sheet1!C5" for r in refs)
+    floats = [a for a in b10.inputs if isinstance(a, float)]
     assert 1.1 in floats
 
 
@@ -58,10 +58,10 @@ def test_b11_is_mul_node(simple_workbook_path):
     cells, *_ = extract_formula_cells(simple_workbook_path)
     b11 = cells["Sheet1!B11"]
     assert isinstance(b11, FunctionNode)
-    assert b11.name == "MUL"
-    refs = [a for a in b11.args if isinstance(a, RefNode)]
-    assert any(r.ref == "Sheet1!C5" for r in refs)
-    nums = [a for a in b11.args if isinstance(a, (int, float))]
+    assert b11.type == "MUL"
+    refs = [a for a in b11.inputs if isinstance(a, CellNode)]
+    assert any(r.cell == "Sheet1!C5" for r in refs)
+    nums = [a for a in b11.inputs if isinstance(a, (int, float))]
     assert 2 in nums
 
 
@@ -155,8 +155,11 @@ class TestDepth1:
         output = to_yaml(cells, depth=1, data_values=dv)
         parsed = yaml.safe_load(output)
         c5 = _get_cell(parsed, "Sheet1", "C5")
-        # At depth 1, range values are inlined
-        assert c5["expression"] == {"type": "SUM", "inputs": [10, 20]}
+        # At depth 1, range cells are inlined as cell objects
+        inputs = c5["expression"]["inputs"]
+        assert len(inputs) == 2
+        assert inputs[0] == {"cell": "Sheet1!A1", "outputs": 10}
+        assert inputs[1] == {"cell": "Sheet1!A2", "outputs": 20}
 
 
 class TestDepthInf:
@@ -172,16 +175,22 @@ class TestDepthInf:
         ref_entry = next((a for a in inputs if isinstance(a, dict) and "cell" in a), None)
         assert ref_entry is not None
         assert ref_entry["cell"] == "Sheet1!C5"
-        # At depth inf, C5's SUM has range values inlined
-        assert ref_entry["expression"] == {"type": "SUM", "inputs": [10, 20]}
+        # At depth inf, C5's SUM has range cells inlined
+        sum_inputs = ref_entry["expression"]["inputs"]
+        assert len(sum_inputs) == 2
+        assert sum_inputs[0] == {"cell": "Sheet1!A1", "outputs": 10}
+        assert sum_inputs[1] == {"cell": "Sheet1!A2", "outputs": 20}
 
     def test_constant_ref_expanded(self, simple_workbook_path):
-        """Constant-cell RefNodes show as {cell: ref, outputs: value} when depth allows."""
+        """Constant-cell CellNodes show as {cell: ref, outputs: value} when depth allows."""
         cells, dv, *_ = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, depth=math.inf, data_values=dv)
         parsed = yaml.safe_load(output)
         c5 = _get_cell(parsed, "Sheet1", "C5")
-        assert c5["expression"] == {"type": "SUM", "inputs": [10, 20]}
+        inputs = c5["expression"]["inputs"]
+        assert len(inputs) == 2
+        assert inputs[0] == {"cell": "Sheet1!A1", "outputs": 10}
+        assert inputs[1] == {"cell": "Sheet1!A2", "outputs": 20}
 
 
 class TestDepth2:
@@ -195,8 +204,11 @@ class TestDepth2:
         inputs = b10["expression"]["inputs"]
         ref_entry = next((a for a in inputs if isinstance(a, dict) and "cell" in a), None)
         assert ref_entry is not None
-        # depth 2: C5's inner range is at depth 2, gets values inlined
-        assert ref_entry["expression"] == {"type": "SUM", "inputs": [10, 20]}
+        # depth 2: C5's inner range is at depth 2, gets cells inlined
+        sum_inputs = ref_entry["expression"]["inputs"]
+        assert len(sum_inputs) == 2
+        assert sum_inputs[0] == {"cell": "Sheet1!A1", "outputs": 10}
+        assert sum_inputs[1] == {"cell": "Sheet1!A2", "outputs": 20}
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +228,9 @@ class TestOutputs:
         assert cell["outputs"] == 3
 
     def test_expanded_ref_has_outputs(self):
-        """Expanded RefNode shows outputs from resolved_value."""
+        """Expanded CellNode shows outputs from outputs field."""
         inner = FunctionNode("ADD", [1, 2])
-        ref = RefNode("Sheet1!B1", formula=inner, resolved_value=3)
+        ref = CellNode(cell="Sheet1!B1", expression=inner, outputs=3)
         cells = {"Sheet1!A1": FunctionNode("MUL", [ref, 10])}
         output = to_yaml(cells, depth=1)
         parsed = yaml.safe_load(output)
@@ -381,13 +393,21 @@ class TestYamlValidity:
         assert parsed is not None, f"YAML parse failed for {kw}"
         return parsed
 
-    def test_none_in_range_values(self):
+    def test_none_in_range_cells(self):
         cells = {"Sheet1!A1": FunctionNode("SUM", [
-            RangeNode("Sheet1!B1", "Sheet1!B3", values=[None, 42, None]),
+            RangeNode("Sheet1!B1", "Sheet1!B3", cells=[
+                CellNode(cell="Sheet1!B1", outputs=None),
+                CellNode(cell="Sheet1!B2", outputs=42),
+                CellNode(cell="Sheet1!B3", outputs=None),
+            ]),
         ])}
         p = self._roundtrip(cells, depth=math.inf)
         expr = _get_cell(p, "Sheet1", "A1")["expression"]
-        assert expr == {"type": "SUM", "inputs": [None, 42, None]}
+        inputs = expr["inputs"]
+        assert len(inputs) == 3
+        assert inputs[0] == {"cell": "Sheet1!B1"}
+        assert inputs[1] == {"cell": "Sheet1!B2", "outputs": 42}
+        assert inputs[2] == {"cell": "Sheet1!B3"}
 
     def test_yaml_keywords_stay_strings(self):
         cells = {"Sheet1!A1": FunctionNode("CONCAT", ["true", "false", "null", "yes", "no", "~"])}
@@ -420,7 +440,7 @@ class TestYamlValidity:
     def test_deep_nesting_all_depths(self):
         inner = FunctionNode("CONST", [42])
         for i in range(5):
-            inner = FunctionNode("WRAP", [RefNode(f"Sheet1!X{i}", formula=inner)])
+            inner = FunctionNode("WRAP", [CellNode(cell=f"Sheet1!X{i}", expression=inner)])
         cells = {"Sheet1!Z1": inner}
         for d in [0, 2, 5, math.inf]:
             self._roundtrip(cells, depth=d)
@@ -428,15 +448,15 @@ class TestYamlValidity:
     def test_mixed_node_types(self):
         cells = {"Sheet1!A1": FunctionNode("ADD", [
             TableRefNode("Table1", "Amount", False, resolved_range="Sheet1!B2:B10"),
-            NamedRefNode("Tax", resolved_range="Sheet1!$C$1", resolved_value=0.1),
-            RefNode("Sheet1!D1", resolved_value=100),
+            NamedRefNode("Tax", resolved_range="Sheet1!$C$1", cell=CellNode(cell="Sheet1!C1", outputs=0.1)),
+            CellNode(cell="Sheet1!D1", outputs=100),
         ])}
         for d in [0, 1, math.inf]:
             p = self._roundtrip(cells, depth=d)
             assert p is not None
 
     def test_sheet_name_with_space(self):
-        cells = {"My Sheet!A1": FunctionNode("ADD", [RefNode("My Sheet!B1", resolved_value=5), 10])}
+        cells = {"My Sheet!A1": FunctionNode("ADD", [CellNode(cell="My Sheet!B1", outputs=5), 10])}
         p = self._roundtrip(cells, depth=1)
         expr = _get_cell(p, "My Sheet", "A1")["expression"]
         assert expr == {"type": "ADD", "inputs": [{"cell": "My Sheet!B1", "outputs": 5}, 10]}
@@ -449,17 +469,23 @@ class TestYamlValidity:
         assert vals[0] == "key: value"
         assert vals[1] == "k : v"
 
-    def test_large_range_values(self):
+    def test_large_range_cells(self):
+        range_cells = [CellNode(cell=f"Sheet1!A{i+1}", outputs=i) for i in range(100)]
         cells = {"Sheet1!A1": FunctionNode("SUM", [
-            RangeNode("Sheet1!A1", "Sheet1!A100", values=list(range(100))),
+            RangeNode("Sheet1!A1", "Sheet1!A100", cells=range_cells),
         ])}
         p = self._roundtrip(cells, depth=math.inf)
         vals = _get_cell(p, "Sheet1", "A1")["expression"]["inputs"]
-        assert vals == list(range(100))
+        assert len(vals) == 100
+        assert all(isinstance(v, dict) and "cell" in v for v in vals)
 
     def test_inline_format_roundtrips(self):
-        inner = FunctionNode("SUM", [RangeNode("Sheet1!A1", "Sheet1!A3", values=[1, 2, 3])])
-        ref = RefNode("Sheet1!C1", formula=inner, resolved_value=6)
+        inner = FunctionNode("SUM", [RangeNode("Sheet1!A1", "Sheet1!A3", cells=[
+            CellNode(cell="Sheet1!A1", outputs=1),
+            CellNode(cell="Sheet1!A2", outputs=2),
+            CellNode(cell="Sheet1!A3", outputs=3),
+        ])])
+        ref = CellNode(cell="Sheet1!C1", expression=inner, outputs=6)
         cells = {"Sheet1!B1": FunctionNode("MUL", [ref, 2])}
         p = self._roundtrip(cells, fmt="inline", depth=math.inf)
         expr = _get_cell(p, "Sheet1", "B1")["expression"]

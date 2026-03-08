@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sheet-call-tree"
-version = "0.1.0"
+version = "0.1.1"
 description = "Visualize Excel formula dependencies as YAML AST"
 readme = "README.md"
 license = {text = "MIT"}
@@ -12,14 +12,12 @@ authors = [{name = "roksechs"}]
 keywords = ["excel", "xlsx", "formula", "ast", "yaml", "dependency"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Office/Business :: Financial :: Spreadsheet",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "joblib>=1.5.3",
     "openpyxl>=3.1",
