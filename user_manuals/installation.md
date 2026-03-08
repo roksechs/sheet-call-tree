@@ -8,7 +8,7 @@
 ## Install from GitHub
 
 ```bash
-uv pip install git+https://github.com/roksechs/sheet-call-tree.git
+uv tool install git+https://github.com/roksechs/sheet-call-tree.git
 ```
 
 ## Install from source (editable dev install)
@@ -18,11 +18,10 @@ Clone the repository and install in editable mode with dev dependencies:
 ```bash
 git clone https://github.com/roksechs/sheet-call-tree.git
 cd sheet-call-tree
-uv venv --clear
-uv pip install -e ".[dev]"
+uv sync --dev
 ```
 
-The `[dev]` extra adds `pytest` and `pytest-cov` for running the test suite.
+The `--dev` flag includes `pytest` and `pytest-cov` for running the test suite.
 
 ## Verify the installation
 
