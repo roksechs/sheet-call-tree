@@ -35,11 +35,11 @@ cells = extract_formula_cells("myfile.xlsx")
 - ワークブックは 2 回読み込まれます：数式テキスト用（`data_only=False`）とキャッシュ済み計算値用（`data_only=True`）。
 - 数式セル（値が `=` で始まるセル）のみがトップレベルキーとして現れます。
 - 定数セルは数式 AST 内の `RefNode` 値としてのみ現れます。
-- `RefNode.value` には参照先セルのスカラー値（定数セルの場合）または `FunctionNode`（数式セルの場合）が格納されます。`RefNode.cached_value` には `data_only` のスカラー値が格納されます（プログラムで作成されたワークブックでは `None` の場合があります）。
+- `RefNode.formula` には参照先セルの `FunctionNode`（数式セルの場合）または `None`（定数/不明セルの場合）が格納されます。`RefNode.resolved_value` にはスカラー値（定数セルの値または `data_only` のキャッシュ結果）が格納されます（プログラムで作成されたワークブックでは `None` の場合があります）。
 
 ---
 
-### `to_yaml(cells, ref_mode="ref", stream=None) -> str | None`
+### `to_yaml(cells, *, depth=None, fmt="tree", book_name="", stream=None) -> str | None`
 
 `formula_cells` 辞書を YAML にシリアライズします。
 
@@ -48,12 +48,15 @@ from sheet_call_tree import extract_formula_cells, to_yaml
 
 cells = extract_formula_cells("myfile.xlsx")
 
-# YAML 文字列を返す
+# YAML 文字列を返す（深さ 0、ツリーフォーマット）
 yaml_str = to_yaml(cells)
 
-# ファイルに書き込む
+# 完全展開
+yaml_str = to_yaml(cells, depth=float('inf'))
+
+# インラインフォーマット
 with open("deps.yaml", "w") as fh:
-    to_yaml(cells, ref_mode="inline", stream=fh)
+    to_yaml(cells, fmt="inline", stream=fh)
 ```
 
 **パラメーター：**
@@ -61,21 +64,22 @@ with open("deps.yaml", "w") as fh:
 | パラメーター | 型 | デフォルト | 説明 |
 |------------|-----|----------|------|
 | `cells` | `dict[str, FunctionNode]` | *(必須)* | `extract_formula_cells` の出力 |
-| `ref_mode` | `str` | `"ref"` | 描画モード: `"ref"`、`"ast"`、`"value"`、または `"inline"` |
+| `depth` | `int \| float \| None` | `None`（→ 0） | 展開の深さ: 0 = 参照のみ、`inf` = 完全展開 |
+| `fmt` | `str` | `"tree"` | 出力フォーマット: `"tree"` または `"inline"` |
+| `book_name` | `str` | `""` | トップレベル `book.name` フィールドのワークブックファイル名 |
 | `stream` | 書き込み可能なファイルオブジェクト | `None` | 指定した場合、YAML はストリームに書き出される |
+| `ref_mode` | `str \| None` | `None` | *（非推奨）* レガシー描画モード；代わりに `depth`/`fmt` を使用 |
 
 **戻り値：** `stream` が `None` の場合は YAML 文字列；`stream` が指定された場合は `None`。
-
-**例外：** `ref_mode` が 4 つの有効な値のいずれでもない場合、`ValueError` を発生させます。
 
 ---
 
 ## データモデル（`sheet_call_tree.models`）
 
-AST は 3 つのデータクラスと 1 つの型エイリアスで構成されています：
+AST は 5 つのデータクラスと 1 つの型エイリアスで構成されています：
 
 ```python
-from sheet_call_tree.models import FunctionNode, RefNode, RangeNode, Node
+from sheet_call_tree.models import FunctionNode, RefNode, RangeNode, TableRefNode, NamedRefNode, Node
 ```
 
 ---
@@ -107,9 +111,9 @@ class FunctionNode:
 ```python
 @dataclass
 class RefNode:
-    ref: str                    # "Sheet1!A1"（@ シジルなし）
-    value: object = None        # 定数セルはスカラー；数式セルは FunctionNode；不明の場合は None
-    cached_value: object = None # data_only の計算値（--ref-mode value 用）；利用不可の場合は None
+    ref: str                              # "Sheet1!A1"（@ シジルなし）
+    formula: FunctionNode | None = None   # 数式セルの AST（定数/不明セルでは None）
+    resolved_value: object = None         # スカラー値（定数セルの値またはキャッシュ済み計算結果）
 ```
 
 **フィールド：**
@@ -117,8 +121,8 @@ class RefNode:
 | フィールド | 説明 |
 |----------|------|
 | `ref` | `@` プレフィックスなしの完全修飾セル参照文字列（例: `"Sheet1!C5"`） |
-| `value` | セルの内容：定数セルではスカラー（`int`、`float`、`str`、`bool`）；数式セルでは `FunctionNode`；セルがワークブックに見つからない場合は `None` |
-| `cached_value` | `data_only` の計算値。Excel で保存されたワークブックではこれが最後に計算された結果です。プログラムで作成されたワークブック（openpyxl で作成され、Excel で開かれたことがないもの）では `None` です。 |
+| `formula` | セルの解析済み AST：数式セルでは `FunctionNode`；定数セルまたはセルがワークブックに見つからない場合は `None` |
+| `resolved_value` | スカラー値：定数セルではセルの値（`int`、`float`、`str`、`bool`）；数式セルでは `data_only` のキャッシュ結果（プログラムで作成されたワークブックでは `None` の場合あり） |
 
 ---
 
@@ -129,21 +133,105 @@ class RefNode:
 ```python
 @dataclass
 class RangeNode:
-    start: RefNode   # 範囲の最初のセル
-    end: RefNode     # 範囲の最後のセル
+    start: str                            # "Sheet1!A1"
+    end: str                              # "Sheet1!A9"
+    values: list[object] | None = None    # 範囲内の全セル値（リーダーにより設定）
 ```
 
-`start` と `end` はワークブックから `value` / `cached_value` フィールドが設定された `RefNode` インスタンスです。
+**フィールド：**
+
+| フィールド | 説明 |
+|----------|------|
+| `start` | 完全修飾の開始セル参照文字列（例: `"Sheet1!A1"`） |
+| `end` | 完全修飾の終了セル参照文字列（例: `"Sheet1!A9"`） |
+| `values` | 範囲内の全セル値のリスト。未設定の場合は `None`。深さ > 0 ではこれらの値が YAML 出力に含まれる。 |
+
+---
+
+### `TableRefNode`
+
+構造化テーブル参照（例: `Table1[Amount]` や `Table1[@Amount]`）を表します。
+
+```python
+@dataclass
+class TableRefNode:
+    table_name: str            # "Table1"
+    column: str | None         # "Amount"；テーブル全体の参照では None
+    this_row: bool             # @プレフィックス時に True（Table1[@Amount]）
+    resolved_range: str | None = None   # "Sheet1!D2:D100"
+    cached_value: object = None
+```
+
+**フィールド：**
+
+| フィールド | 説明 |
+|----------|------|
+| `table_name` | テーブル名（例: `"Table1"`） |
+| `column` | カラム指定子。テーブル全体の参照では `None` |
+| `this_row` | 参照が現在行の `@` を使用している場合 `True`（例: `Table1[@Amount]`） |
+| `resolved_range` | 解決済みのセル範囲（例: `"Sheet1!D2:D100"`） |
+| `cached_value` | キャッシュ済み計算値（利用可能な場合） |
+
+YAML ツリー出力では以下のように表示されます：
+```yaml
+TABLE_REF:
+  name: Table1
+  column: Amount
+  this_row: true
+  range: Sheet1!D2:D100
+```
+
+インライン出力では: `TABLE_REF(Table1[@Amount])`
+
+---
+
+### `NamedRefNode`
+
+名前付き範囲または定義済み名前の参照（例: `SalesTotal`）を表します。
+
+```python
+@dataclass
+class NamedRefNode:
+    name: str                  # "SalesTotal"
+    resolved_range: str | None = None   # "Sheet1!$B$10"
+    formula: FunctionNode | None = None   # 解決後の数式セル AST
+    resolved_value: object = None         # スカラー値
+```
+
+**フィールド：**
+
+| フィールド | 説明 |
+|----------|------|
+| `name` | 定義済み名前（例: `"SalesTotal"`） |
+| `resolved_range` | 解決済みのセル範囲または参照 |
+| `formula` | 名前付き参照が数式セルに解決される場合の数式セル AST |
+| `resolved_value` | スカラー値（利用可能な場合） |
+
+深さ 0 の YAML ツリー出力では以下のように表示されます：
+```yaml
+NAMED_REF:
+  name: SalesTotal
+  range: Sheet1!$B$10
+```
+
+深さ > 0 で名前付き参照が数式に解決される場合、AST が展開されます：
+```yaml
+NAMED_REF(SalesTotal):
+  SUM:
+  - ...
+```
+
+インライン出力では: `NAMED_REF(SalesTotal)`
 
 ---
 
 ### `Node` 型エイリアス
 
 ```python
-Node = Union[FunctionNode, RefNode, RangeNode, int, float, bool, str]
+Node = Union[FunctionNode, RefNode, RangeNode, TableRefNode, NamedRefNode, int, float, bool, str]
 ```
 
-`FunctionNode.args` の全要素と `RangeNode.start` / `end` は `Node` です。プレーンなスカラー（`int`、`float`、`bool`、`str`）はリテラル引数値として現れます。
+`FunctionNode.args` の全要素は `Node` です。プレーンなスカラー（`int`、`float`、`bool`、`str`）はリテラル引数値として現れます。
 
 ---
 
@@ -165,7 +253,7 @@ Node = Union[FunctionNode, RefNode, RangeNode, int, float, bool, str]
 
 ```python
 from sheet_call_tree import extract_formula_cells
-from sheet_call_tree.models import FunctionNode, RefNode, RangeNode
+from sheet_call_tree.models import FunctionNode, RefNode, RangeNode, TableRefNode, NamedRefNode
 
 
 def walk(node, depth=0):
@@ -176,9 +264,13 @@ def walk(node, depth=0):
             walk(arg, depth + 1)
         print(f"{indent})")
     elif isinstance(node, RangeNode):
-        print(f"{indent}RANGE({node.start.ref} .. {node.end.ref})")
+        print(f"{indent}RANGE({node.start} .. {node.end})")
     elif isinstance(node, RefNode):
-        print(f"{indent}@{node.ref} = {node.value!r}")
+        print(f"{indent}@{node.ref} = {node.formula!r}")
+    elif isinstance(node, TableRefNode):
+        print(f"{indent}TABLE_REF({node.table_name}[{node.column}])")
+    elif isinstance(node, NamedRefNode):
+        print(f"{indent}NAMED_REF({node.name})")
     else:
         print(f"{indent}{node!r}")
 

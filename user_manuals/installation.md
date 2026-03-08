@@ -33,21 +33,23 @@ Expected output:
 
 ```
 usage: sheet-call-tree [-h] [--filter CELL] [--output FILE] [--no-cycle-check]
-                       [--ref-mode {ref,ast,value,inline}]
+                       [--depth N] [--format {tree,inline}]
                        input
 
-Visualize Excel formula dependencies as YAML AST.
+Excel の数式依存関係を YAML AST として可視化します。
 
 positional arguments:
-  input                 Path to the .xlsx file
+  input                 .xlsx ファイルのパス
 
 options:
   -h, --help            show this help message and exit
-  --filter CELL         Output only the specified cell (e.g. 'Sheet1!B10')
-  --output FILE         Write YAML to FILE instead of stdout
-  --no-cycle-check      Skip circular reference detection
-  --ref-mode {ref,ast,value,inline}
-                        How to render formula-cell references in YAML output.
+  --filter CELL         指定したセルのみ出力する（例: 'Sheet1!B10'）
+  --output FILE         YAML を stdout ではなくファイルに書き出す
+  --no-cycle-check      循環参照の検出をスキップする
+  --depth N             Expansion depth: 0 = refs only (default), inf = full
+                        expansion.
+  --format {tree,inline}
+                        Output format: tree (default) or inline.
 ```
 
 ## Running tests

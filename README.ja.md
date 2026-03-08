@@ -52,11 +52,10 @@ book:
       formula:
         SUM:
         - RANGE:
-          - 10
-          - 20
+            ref: '@Sheet1!A1:A2'
 ```
 
-出力は `book → sheets → cells` の階層で整理されます。各セルエントリは `cell` 座標と `formula`（解析済み AST）を持ちます。定数セル参照はスカラーに解決され、数式セル参照はデフォルトの `ref` モードで `@シート名!セル参照` 文字列として表示されます。
+出力は `book → sheets → cells` の階層で整理されます。各セルエントリは `cell` 座標と `formula`（解析済み AST）を持ちます。定数セル参照はスカラーに解決され、数式セル参照はデフォルトの深さ（0）で `@シート名!セル参照` 文字列として表示されます。範囲参照は `RANGE: {ref: '@Sheet1!A1:A2'}` として表示されます。
 
 ## CLI フラグ一覧
 
@@ -66,18 +65,20 @@ book:
 | `--filter CELL` | — | 指定したセルのみ出力（例: `Sheet1!B10`） |
 | `--output FILE` | stdout | YAML をファイルに書き出す |
 | `--no-cycle-check` | off | 循環参照の検出をスキップする |
-| `--ref-mode MODE` | `ref` | 数式セル参照の描画方法（下記参照） |
+| `--depth N` | `0` | 展開の深さ: 0 = 参照のみ、inf = 完全展開 |
+| `--format FORMAT` | `tree` | 出力フォーマット: `tree` または `inline` |
 
 完全なリファレンス: [user_manuals/ja/cli-reference.md](user_manuals/ja/cli-reference.md)
 
-## 出力モード（`--ref-mode`）
+## 出力モード（`--depth` / `--format`）
 
-| モード | 数式セル参照の描画 |
-|--------|-----------------|
-| `ref`（デフォルト） | `@Sheet1!C5` — クロスリファレンス文字列 |
-| `ast` | `'@Sheet1!C5': {SUM: ...}` — 展開したサブツリーを値として持つキー |
-| `value` | Excel のキャッシュ済みスカラー値（キャッシュがない場合は `null`） |
-| `inline` | 完全に展開された式文字列（例: `ADD(SUM(RANGE(10, 20)), 1.1)`） |
+| 設定 | 数式セル参照の描画 |
+|------|-----------------|
+| `--depth 0`（デフォルト） | `@Sheet1!C5` — クロスリファレンス文字列 |
+| `--depth inf` | `'@Sheet1!C5': {SUM: ...}` — 展開したサブツリーを値として持つキー |
+| `--format inline` | `SUM(RANGE(@Sheet1!A1:A2))` — 完全に展開された式文字列 |
+
+非推奨の `--ref-mode` フラグは引き続き使用可能です（`ref`→depth 0、`ast`→depth inf、`inline`→format inline）。
 
 例付きの詳細: [user_manuals/ja/output-formats.md](user_manuals/ja/output-formats.md)
 
@@ -88,7 +89,7 @@ from sheet_call_tree import extract_formula_cells, to_yaml
 
 cells = extract_formula_cells("myfile.xlsx")
 print(to_yaml(cells))                        # ref モード（デフォルト）
-print(to_yaml(cells, ref_mode="inline"))     # inline モード
+print(to_yaml(cells, fmt="inline"))          # inline フォーマット
 ```
 
 完全な API リファレンス: [user_manuals/ja/python-api.md](user_manuals/ja/python-api.md)
