@@ -36,7 +36,7 @@ class TestNamedRefParsing:
     def test_named_range_unresolved(self):
         node = p("=SalesTotal")
         assert node.resolved_range is None
-        assert node.value is None
+        assert node.formula is None
 
     def test_regular_cell_not_named_ref(self):
         node = p("=A1")
@@ -85,9 +85,8 @@ class TestNamedRefResolution:
         c2 = cells["Sheet1!C2"]
         named = c2.args[0]
         assert isinstance(named, NamedRefNode)
-        # B2=500 is a constant cell; value and cached_value should be populated
-        assert named.value == 500
-        assert named.cached_value == 500
+        # B2=500 is a constant cell; resolved_value should be populated
+        assert named.resolved_value == 500
 
     def test_unresolved_when_workbook_only(self, named_range_workbook):
         cells = extract_formula_cells_from_workbook(named_range_workbook)
@@ -103,15 +102,15 @@ class TestNamedRefSerialization:
         defaults.update(kw)
         return NamedRefNode(**defaults)
 
-    def test_ref_mode_basic(self):
+    def test_depth0_basic(self):
         node = FunctionNode("ADD", [self._nref(), 10])
-        out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="ref"))
+        out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, depth=0))
         formula = out["book"]["sheets"][0]["cells"][0]["formula"]
         assert formula == {"ADD": [{"NAMED_REF": {"name": "SalesTotal"}}, 10]}
 
-    def test_ref_mode_with_range(self):
+    def test_depth0_with_range(self):
         node = self._nref(resolved_range="Sheet1!$B$2")
-        out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="ref"))
+        out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, depth=0))
         named_dict = out["book"]["sheets"][0]["cells"][0]["formula"]["NAMED_REF"]
         assert named_dict["range"] == "Sheet1!$B$2"
 
@@ -121,22 +120,23 @@ class TestNamedRefSerialization:
         formula = out["book"]["sheets"][0]["cells"][0]["formula"]
         assert formula == "ADD(NAMED_REF(SalesTotal), 10)"
 
-    def test_value_mode_returns_cached(self):
-        node = self._nref(cached_value=500)
-        out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="value"))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert formula == 500
-
-    def test_value_mode_none_when_no_cache(self):
-        node = self._nref()
-        out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="value"))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert formula is None
-
-    def test_ast_mode_expands_function_value(self):
+    def test_depth_inf_expands_function(self):
         inner = FunctionNode("MUL", [2, 3])
-        node = self._nref(value=inner)
+        node = self._nref(formula=inner)
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="ast"))
         formula = out["book"]["sheets"][0]["cells"][0]["formula"]
         assert "NAMED_REF(SalesTotal)" in formula
         assert formula["NAMED_REF(SalesTotal)"] == {"MUL": [2, 3]}
+
+    def test_depth_inf_expands_resolved_value(self):
+        node = self._nref(resolved_value=500)
+        out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="ast"))
+        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
+        assert "NAMED_REF(SalesTotal)" in formula
+        assert formula["NAMED_REF(SalesTotal)"] == 500
+
+    def test_depth0_no_expansion(self):
+        node = self._nref(resolved_value=500)
+        out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, depth=0))
+        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
+        assert formula == {"NAMED_REF": {"name": "SalesTotal"}}

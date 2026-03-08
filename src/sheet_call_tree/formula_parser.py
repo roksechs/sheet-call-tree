@@ -84,9 +84,9 @@ def _parse_range_token(raw: str, sheet: str):
     """Convert a RANGE token value to a typed AST node.
 
     - 'A1'          → RefNode('Sheet1!A1')
-    - 'A1:A9'       → RangeNode(RefNode('Sheet1!A1'), RefNode('Sheet1!A9'))
+    - 'A1:A9'       → RangeNode('Sheet1!A1', 'Sheet1!A9')
     - 'Sheet2!C5'   → RefNode('Sheet2!C5')
-    - 'Sheet2!A1:B9'→ RangeNode(RefNode('Sheet2!A1'), RefNode('Sheet2!B9'))
+    - 'Sheet2!A1:B9'→ RangeNode('Sheet2!A1', 'Sheet2!B9')
     """
     clean = raw.replace("$", "")
     if ":" in clean:
@@ -94,8 +94,8 @@ def _parse_range_token(raw: str, sheet: str):
         # Sheet qualifier appears on the left side only for cross-sheet ranges
         if "!" in left and "!" not in right:
             sh, lcell = left.rsplit("!", 1)
-            return RangeNode(RefNode(f"{sh}!{lcell}"), RefNode(f"{sh}!{right}"))
-        return RangeNode(RefNode(_qualify(left, sheet)), RefNode(_qualify(right, sheet)))
+            return RangeNode(f"{sh}!{lcell}", f"{sh}!{right}")
+        return RangeNode(_qualify(left, sheet), _qualify(right, sheet))
     return RefNode(_qualify(clean, sheet))
 
 

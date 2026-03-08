@@ -1,16 +1,21 @@
 """Serialize typed formula AST nodes to YAML.
 
-Rendering modes (--ref-mode):
-  ref    (default) nested YAML dict; formula-cell refs as '@Sheet1!C5' strings
-  ast              nested YAML dict; formula-cell refs as {'@Sheet1!C5': <AST>}
-  value            nested YAML dict; formula-cell refs as their cached scalar
-  inline           each cell is a single YAML string, fully expanded as FUNC(...)
+Rendering parameters:
+  --depth N       Expansion depth (default: inf). 0 = refs only, inf = full expansion.
+  --format F      tree (default) | inline
+
+Legacy --ref-mode mapping:
+  ref    → --depth 0
+  ast    → --depth inf
+  inline → --format inline --depth inf
 """
 from __future__ import annotations
 
+import math
+
 from .models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
 
-_REF_MODES = {"ref", "ast", "value", "inline"}
+_REF_MODES = {"ref", "ast", "inline"}
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +36,10 @@ def _ys(v: str) -> str:
     """YAML scalar for a string: plain when safe, single-quoted otherwise."""
     if not v:
         return "''"
+    if "\n" in v or "\r" in v or "\t" in v or "\\" in v:
+        # Double-quote style for strings with control characters
+        escaped = v.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+        return '"' + escaped + '"'
     if v[0] in _YAML_UNSAFE_START or ": " in v or " #" in v or v.lower() in _YAML_KEYWORDS:
         return "'" + v.replace("'", "''") + "'"
     return v
@@ -114,12 +123,32 @@ def _emit_dict_item(buf: list[str], d: dict, indent: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Backward-compat ref_mode → depth mapping
+# ---------------------------------------------------------------------------
+
+def _resolve_depth(depth: int | float | None, ref_mode: str | None) -> float:
+    """Resolve depth from explicit depth or legacy ref_mode."""
+    if depth is not None:
+        return float(depth)
+    if ref_mode is not None:
+        if ref_mode == "ref":
+            return 0.0
+        if ref_mode in ("ast", "inline"):
+            return math.inf
+        raise ValueError(f"ref_mode must be one of {sorted(_REF_MODES)}, got {ref_mode!r}")
+    return 0.0  # default: depth 0 (refs only)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def to_yaml(
     formula_cells: dict[str, object],
-    ref_mode: str = "ref",
+    *,
+    depth: int | float | None = None,
+    fmt: str = "tree",
+    ref_mode: str | None = None,
     book_name: str = "",
     stream=None,
 ) -> str | None:
@@ -127,8 +156,10 @@ def to_yaml(
 
     Args:
         formula_cells: Mapping of cell ref strings to FunctionNode AST roots.
-        ref_mode:      How to render formula-cell references.
-                       One of 'ref' (default), 'ast', 'value', 'inline'.
+        depth:         Expansion depth. 0 = refs only, inf = full expansion.
+        fmt:           Output format: 'tree' (default) or 'inline'.
+        ref_mode:      Legacy parameter. Maps: 'ref'→depth 0, 'ast'→depth inf,
+                       'inline'→inline format + depth inf.
         book_name:     Workbook filename for the top-level 'book.name' field.
         stream:        Optional writable stream. If provided, YAML is written
                        there and None is returned. Otherwise the YAML string
@@ -137,19 +168,22 @@ def to_yaml(
     Returns:
         YAML string when stream is None, else None.
     """
-    if ref_mode not in _REF_MODES:
-        raise ValueError(f"ref_mode must be one of {sorted(_REF_MODES)}, got {ref_mode!r}")
+    # Handle legacy ref_mode
+    if ref_mode == "inline":
+        fmt = "inline"
+    resolved_depth = _resolve_depth(depth, ref_mode)
 
-    _inline_cache: dict[str, str] | None = {} if ref_mode == "inline" else None
+    is_inline = fmt == "inline"
+    _inline_cache: dict[str, str] | None = {} if is_inline else None
     sheets: dict[str, list] = {}
     for full_ref, node in formula_cells.items():
         sheet, cell = full_ref.split("!", 1)
         if sheet not in sheets:
             sheets[sheet] = []
-        if ref_mode == "inline":
-            formula = _expr(node, _inline_cache)
+        if is_inline:
+            formula = _expr(node, resolved_depth, 0, _inline_cache)
         else:
-            formula = _to_dict(node, ref_mode)
+            formula = _to_dict(node, resolved_depth, 0)
         sheets[sheet].append((cell, formula))
 
     buf: list[str] = ["book:\n", f"  name: {_ys(book_name)}\n", "  sheets:\n"]
@@ -175,14 +209,22 @@ def to_yaml(
 
 
 # ---------------------------------------------------------------------------
-# Recursive dict converter (ref / ast / value modes)
+# Recursive dict converter (tree mode)
 # ---------------------------------------------------------------------------
 
-def _to_dict(node, ref_mode: str):
+def _range_ref_str(node: RangeNode) -> str:
+    """Build the '@Sheet1!A1:A9' string for a RangeNode."""
+    # Extract the end cell (without sheet qualifier if same sheet)
+    if "!" in node.end:
+        _, end_cell = node.end.rsplit("!", 1)
+    else:
+        end_cell = node.end
+    return f"@{node.start}:{end_cell}"
+
+
+def _to_dict(node, depth: float, current_depth: int):
     """Convert a typed AST node to a YAML-serializable structure."""
     if isinstance(node, TableRefNode):
-        if ref_mode == "value":
-            return node.cached_value
         d: dict = {"name": node.table_name}
         if node.column:
             d["column"] = node.column
@@ -191,58 +233,46 @@ def _to_dict(node, ref_mode: str):
         if node.resolved_range:
             d["range"] = node.resolved_range
         return {"TABLE_REF": d}
+
     if isinstance(node, NamedRefNode):
-        if ref_mode == "value":
-            return node.cached_value
-        if ref_mode == "ast" and isinstance(node.value, FunctionNode):
-            return {f"NAMED_REF({node.name})": _to_dict(node.value, ref_mode)}
+        if current_depth < depth and isinstance(node.formula, FunctionNode):
+            return {f"NAMED_REF({node.name})": _to_dict(node.formula, depth, current_depth + 1)}
+        if current_depth < depth and node.resolved_value is not None:
+            return {f"NAMED_REF({node.name})": node.resolved_value}
         d = {"name": node.name}
         if node.resolved_range:
             d["range"] = node.resolved_range
         return {"NAMED_REF": d}
+
     if isinstance(node, FunctionNode):
-        return {node.name: [_to_dict(arg, ref_mode) for arg in node.args]}
+        return {node.name: [_to_dict(arg, depth, current_depth) for arg in node.args]}
+
     if isinstance(node, RangeNode):
-        return {"RANGE": [_render_ref(node.start, ref_mode), _render_ref(node.end, ref_mode)]}
+        ref_str = _range_ref_str(node)
+        d = {"ref": ref_str}
+        if current_depth < depth and node.values is not None:
+            d["values"] = node.values
+        return {"RANGE": d}
+
     if isinstance(node, RefNode):
-        return _render_ref(node, ref_mode)
+        at_ref = f"@{node.ref}"
+        if current_depth >= depth:
+            return at_ref
+        if node.formula is not None:
+            return {at_ref: _to_dict(node.formula, depth, current_depth + 1)}
+        if node.resolved_value is not None:
+            return {at_ref: node.resolved_value}
+        return at_ref  # unknown ref
+
     # Scalar (int, float, bool, str)
     return node
-
-
-def _render_ref(ref_node: RefNode, ref_mode: str):
-    """Render a RefNode according to the current ref_mode.
-
-    Constant-cell refs (value is a scalar) always resolve to that scalar.
-    Formula-cell refs (value is a FunctionNode) are rendered per ref_mode.
-    Unknown refs (value is None) are treated like formula-cell refs.
-    """
-    # Constant cell: scalar in all modes
-    if ref_node.value is not None and not isinstance(ref_node.value, FunctionNode):
-        return ref_node.value
-
-    at_ref = f"@{ref_node.ref}"
-
-    if ref_mode == "ref":
-        return at_ref
-
-    if ref_mode == "ast":
-        if isinstance(ref_node.value, FunctionNode):
-            return {at_ref: _to_dict(ref_node.value, ref_mode)}
-        return at_ref  # unknown ref — no AST to expand
-
-    if ref_mode == "value":
-        return ref_node.cached_value  # None for programmatic xlsx without cached values
-
-    # Should not reach here for valid ref_mode
-    return at_ref
 
 
 # ---------------------------------------------------------------------------
 # Inline expression renderer
 # ---------------------------------------------------------------------------
 
-def _expr(node, _cache: dict[str, str] | None = None) -> str:
+def _expr(node, depth: float, current_depth: int, _cache: dict[str, str] | None = None) -> str:
     """Recursively render a typed AST node as a FUNC(arg1, arg2, …) string."""
     if isinstance(node, TableRefNode):
         at = "@" if node.this_row else ""
@@ -253,25 +283,32 @@ def _expr(node, _cache: dict[str, str] | None = None) -> str:
         return f"NAMED_REF({node.name})"
 
     if isinstance(node, FunctionNode):
-        args_str = ", ".join(_expr(arg, _cache) for arg in node.args)
+        args_str = ", ".join(_expr(arg, depth, current_depth, _cache) for arg in node.args)
         return f"{node.name}({args_str})"
 
     if isinstance(node, RangeNode):
-        return f"RANGE({_expr(node.start, _cache)}, {_expr(node.end, _cache)})"
+        ref_str = _range_ref_str(node)
+        if current_depth < depth and node.values is not None:
+            vals = ", ".join(_scalar_str(v) for v in node.values)
+            return f"RANGE({ref_str}, [{vals}])"
+        return f"RANGE({ref_str})"
 
     if isinstance(node, RefNode):
-        if isinstance(node.value, FunctionNode):
+        at_ref = f"@{node.ref}"
+        if current_depth >= depth:
+            return at_ref
+        if node.formula is not None:
             if _cache is not None:
                 cached = _cache.get(node.ref)
                 if cached is not None:
                     return cached
-                result = _expr(node.value, _cache)
+                result = _expr(node.formula, depth, current_depth + 1, _cache)
                 _cache[node.ref] = result
                 return result
-            return _expr(node.value, _cache)
-        if node.value is not None:
-            return _scalar_str(node.value)
-        return f"@{node.ref}"  # unknown ref
+            return _expr(node.formula, depth, current_depth + 1, _cache)
+        if node.resolved_value is not None:
+            return _scalar_str(node.resolved_value)
+        return at_ref  # unknown ref
 
     # Plain scalar
     return _scalar_str(node)
@@ -280,4 +317,6 @@ def _expr(node, _cache: dict[str, str] | None = None) -> str:
 def _scalar_str(v) -> str:
     if isinstance(v, bool):
         return "TRUE" if v else "FALSE"
+    if v is None:
+        return "null"
     return str(v)
