@@ -74,14 +74,14 @@ class TestNamedRangeBuilding:
 
 class TestNamedRefResolution:
     def test_resolved_range_populated(self, named_range_workbook_path):
-        cells = extract_formula_cells(named_range_workbook_path)
+        cells, _ = extract_formula_cells(named_range_workbook_path)
         c2 = cells["Sheet1!C2"]
         named = c2.args[0]
         assert isinstance(named, NamedRefNode)
         assert named.resolved_range == "Sheet1!$B$2"
 
     def test_resolved_value_populated(self, named_range_workbook_path):
-        cells = extract_formula_cells(named_range_workbook_path)
+        cells, _ = extract_formula_cells(named_range_workbook_path)
         c2 = cells["Sheet1!C2"]
         named = c2.args[0]
         assert isinstance(named, NamedRefNode)
@@ -105,38 +105,38 @@ class TestNamedRefSerialization:
     def test_depth0_basic(self):
         node = FunctionNode("ADD", [self._nref(), 10])
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, depth=0))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert formula == {"ADD": [{"NAMED_REF": {"name": "SalesTotal"}}, 10]}
+        expr = out["book"]["sheets"][0]["cells"][0]["expression"]
+        assert expr == {"type": "ADD", "inputs": [{"type": "NAMED_REF", "name": "SalesTotal"}, 10]}
 
     def test_depth0_with_range(self):
         node = self._nref(resolved_range="Sheet1!$B$2")
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, depth=0))
-        named_dict = out["book"]["sheets"][0]["cells"][0]["formula"]["NAMED_REF"]
-        assert named_dict["range"] == "Sheet1!$B$2"
+        expr = out["book"]["sheets"][0]["cells"][0]["expression"]
+        assert expr["type"] == "NAMED_REF"
+        assert expr["range"] == "Sheet1!$B$2"
 
     def test_inline_mode(self):
         node = FunctionNode("ADD", [self._nref(), 10])
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="inline"))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert formula == "ADD(NAMED_REF(SalesTotal), 10)"
+        expr = out["book"]["sheets"][0]["cells"][0]["expression"]
+        assert expr == "ADD(NAMED_REF(SalesTotal), 10)"
 
     def test_depth_inf_expands_function(self):
         inner = FunctionNode("MUL", [2, 3])
         node = self._nref(formula=inner)
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="ast"))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert "NAMED_REF(SalesTotal)" in formula
-        assert formula["NAMED_REF(SalesTotal)"] == {"MUL": [2, 3]}
+        expr = out["book"]["sheets"][0]["cells"][0]["expression"]
+        assert expr["named_ref"] == "SalesTotal"
+        assert expr["expression"] == {"type": "MUL", "inputs": [2, 3]}
 
     def test_depth_inf_expands_resolved_value(self):
         node = self._nref(resolved_value=500)
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="ast"))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert "NAMED_REF(SalesTotal)" in formula
-        assert formula["NAMED_REF(SalesTotal)"] == 500
+        expr = out["book"]["sheets"][0]["cells"][0]["expression"]
+        assert expr == {"named_ref": "SalesTotal", "outputs": 500}
 
     def test_depth0_no_expansion(self):
         node = self._nref(resolved_value=500)
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, depth=0))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert formula == {"NAMED_REF": {"name": "SalesTotal"}}
+        expr = out["book"]["sheets"][0]["cells"][0]["expression"]
+        assert expr == {"type": "NAMED_REF", "name": "SalesTotal"}

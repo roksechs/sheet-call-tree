@@ -92,14 +92,14 @@ class TestTableRangeBuilding:
 
 class TestTableRefResolution:
     def test_column_ref_resolved(self, table_workbook_path):
-        cells = extract_formula_cells(table_workbook_path)
+        cells, _ = extract_formula_cells(table_workbook_path)
         c2 = cells["Sheet1!C2"]
         tref = c2.args[0]
         assert isinstance(tref, TableRefNode)
         assert tref.resolved_range == "Sheet1!B2:B3"
 
     def test_this_row_ref_resolved(self, table_workbook_path):
-        cells = extract_formula_cells(table_workbook_path)
+        cells, _ = extract_formula_cells(table_workbook_path)
         d2 = cells["Sheet1!D2"]
         assert isinstance(d2, FunctionNode)
         tref = d2.args[0]
@@ -124,35 +124,35 @@ class TestTableRefSerialization:
     def test_depth0_basic(self):
         node = FunctionNode("SUM", [self._tref()])
         out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, depth=0))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
-        assert formula == {"SUM": [{"TABLE_REF": {"name": "Table1", "column": "Amount"}}]}
+        expr = out["book"]["sheets"][0]["cells"][0]["expression"]
+        assert expr == {"type": "SUM", "inputs": [{"type": "TABLE_REF", "name": "Table1", "column": "Amount"}]}
 
     def test_depth0_with_range(self):
         node = FunctionNode("SUM", [self._tref(resolved_range="Sheet1!B2:B3")])
         out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, depth=0))
-        tref_dict = out["book"]["sheets"][0]["cells"][0]["formula"]["SUM"][0]["TABLE_REF"]
+        tref_dict = out["book"]["sheets"][0]["cells"][0]["expression"]["inputs"][0]
         assert tref_dict["range"] == "Sheet1!B2:B3"
 
     def test_this_row_flag_present(self):
         node = self._tref(this_row=True)
         out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, depth=0))
-        tref_dict = out["book"]["sheets"][0]["cells"][0]["formula"]["TABLE_REF"]
+        tref_dict = out["book"]["sheets"][0]["cells"][0]["expression"]
         assert tref_dict["this_row"] is True
 
     def test_this_row_flag_absent_when_false(self):
         node = self._tref(this_row=False)
         out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, depth=0))
-        tref_dict = out["book"]["sheets"][0]["cells"][0]["formula"]["TABLE_REF"]
+        tref_dict = out["book"]["sheets"][0]["cells"][0]["expression"]
         assert "this_row" not in tref_dict
 
     def test_inline_mode(self):
         node = FunctionNode("SUM", [self._tref()])
         out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, ref_mode="inline"))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
+        formula = out["book"]["sheets"][0]["cells"][0]["expression"]
         assert formula == "SUM(TABLE_REF(Table1[Amount]))"
 
     def test_inline_mode_this_row(self):
         node = self._tref(this_row=True)
         out = yaml.safe_load(to_yaml({"Sheet1!A1": node}, ref_mode="inline"))
-        formula = out["book"]["sheets"][0]["cells"][0]["formula"]
+        formula = out["book"]["sheets"][0]["cells"][0]["expression"]
         assert formula == "TABLE_REF(Table1[@Amount])"
