@@ -16,9 +16,10 @@ log = logging.getLogger(__name__)
 def extract_formula_cells(path: str | Path) -> dict[str, FunctionNode]:
     """Load an xlsx file and return a dict mapping cell refs to their ASTs.
 
-    Loads the workbook twice: once for formulas (data_only=False) and once for
-    cached values (data_only=True). RefNode.value and RefNode.cached_value are
-    populated from both sources.
+    Loads the workbook twice: once for formulas (data_only=False, full load) and
+    once for cached values (data_only=True, read_only streaming to save memory).
+    Both are iterated together in a single pass via zip().  After each stage the
+    workbook objects are closed so their memory is freed before the next stage.
 
     Only formula cells (values starting with '=') are included as keys.
     Constant cells appear only as RefNode values inside formula ASTs.
@@ -30,12 +31,14 @@ def extract_formula_cells(path: str | Path) -> dict[str, FunctionNode]:
         Dict mapping 'SheetName!CellRef' strings to FunctionNode AST roots.
     """
     wb = openpyxl.load_workbook(path, data_only=False)
-    wb_data = openpyxl.load_workbook(path, data_only=True)
+    wb_data = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    cells, data_values = _extract_cells_and_values(wb, wb_data)
+    wb_data.close()  # streaming workbook no longer needed
 
-    cells = extract_formula_cells_from_workbook(wb)
-    data_values = _extract_all_values(wb_data)
     table_ranges = _build_table_ranges(wb)
     named_ranges = _build_named_ranges(wb)
+    wb.close()  # formula workbook no longer needed
+
     _populate_ref_values(cells, data_values, table_ranges, named_ranges)
     return cells
 
@@ -70,6 +73,33 @@ def extract_formula_cells_from_workbook(wb: openpyxl.Workbook) -> dict[str, Func
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _extract_cells_and_values(
+    wb: openpyxl.Workbook,
+    wb_data: openpyxl.Workbook,
+) -> tuple[dict[str, FunctionNode], dict[str, object]]:
+    """Extract formula cells and cell values in a single pass using zip()."""
+    formula_cells: dict[str, FunctionNode] = {}
+    data_values: dict[str, object] = {}
+
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        ws_data = wb_data[sheet_name]
+        for row, row_data in zip(ws.iter_rows(), ws_data.iter_rows()):
+            for cell, cell_data in zip(row, row_data):
+                if cell_data.value is not None:
+                    ref = f"{sheet_name}!{cell_data.column_letter}{cell_data.row}"
+                    data_values[ref] = cell_data.value
+                val = cell.value
+                if isinstance(val, str) and val.startswith("="):
+                    cell_ref = f"{sheet_name}!{cell.column_letter}{cell.row}"
+                    ast = parse_formula(val, default_sheet=sheet_name)
+                    if ast is not None:
+                        formula_cells[cell_ref] = ast
+                    else:
+                        log.warning("Could not parse formula at %s: %r", cell_ref, val)
+    return formula_cells, data_values
+
 
 def _extract_all_values(wb: openpyxl.Workbook) -> dict[str, object]:
     """Return a dict of all non-None cell values from a data_only workbook."""
