@@ -7,14 +7,25 @@ from sheet_call_tree.reader import extract_formula_cells
 from sheet_call_tree.serializer import to_yaml
 
 
+def _get_cell(parsed, sheet, cell):
+    """Return the formula dict for a given sheet+cell from parsed YAML."""
+    s = next(s for s in parsed["book"]["sheets"] if s["name"] == sheet)
+    return next(c["formula"] for c in s["cells"] if c["cell"] == cell)
+
+
 def test_yaml_output_structure(simple_workbook_path):
     cells = extract_formula_cells(simple_workbook_path)
     output = to_yaml(cells)
     parsed = yaml.safe_load(output)
 
-    assert "Sheet1!C5" in parsed
-    assert "Sheet1!B10" in parsed
-    assert "Sheet1!B11" in parsed
+    assert "book" in parsed
+    sheet_names = [s["name"] for s in parsed["book"]["sheets"]]
+    assert "Sheet1" in sheet_names
+    s1_cells = next(s["cells"] for s in parsed["book"]["sheets"] if s["name"] == "Sheet1")
+    cell_ids = [c["cell"] for c in s1_cells]
+    assert "C5" in cell_ids
+    assert "B10" in cell_ids
+    assert "B11" in cell_ids
 
 
 def test_c5_is_sum_node(simple_workbook_path):
@@ -56,7 +67,9 @@ def test_cli_stdout(simple_workbook_path, capsys):
     assert rc == 0
     captured = capsys.readouterr()
     parsed = yaml.safe_load(captured.out)
-    assert "Sheet1!C5" in parsed
+    assert "book" in parsed
+    cell_ids = [c["cell"] for s in parsed["book"]["sheets"] for c in s["cells"]]
+    assert "C5" in cell_ids
 
 
 def test_cli_filter(simple_workbook_path, capsys):
@@ -64,7 +77,8 @@ def test_cli_filter(simple_workbook_path, capsys):
     assert rc == 0
     captured = capsys.readouterr()
     parsed = yaml.safe_load(captured.out)
-    assert list(parsed.keys()) == ["Sheet1!C5"]
+    s1_cells = next(s["cells"] for s in parsed["book"]["sheets"] if s["name"] == "Sheet1")
+    assert [c["cell"] for c in s1_cells] == ["C5"]
 
 
 def test_cli_output_file(simple_workbook_path, tmp_path):
@@ -72,7 +86,8 @@ def test_cli_output_file(simple_workbook_path, tmp_path):
     rc = main([str(simple_workbook_path), "--output", str(out)])
     assert rc == 0
     parsed = yaml.safe_load(out.read_text())
-    assert "Sheet1!C5" in parsed
+    cell_ids = [c["cell"] for s in parsed["book"]["sheets"] for c in s["cells"]]
+    assert "C5" in cell_ids
 
 
 def test_cli_filter_missing_cell(simple_workbook_path, capsys):
@@ -92,7 +107,7 @@ class TestRefModeRef:
         output = to_yaml(cells, ref_mode="ref")
         parsed = yaml.safe_load(output)
         # C5 = SUM(A1:A2); A1=10, A2=20 are constants → scalars in RANGE
-        c5 = parsed["Sheet1!C5"]
+        c5 = _get_cell(parsed, "Sheet1", "C5")
         assert c5 == {"SUM": [{"RANGE": [10, 20]}]}
 
     def test_formula_refs_as_at_strings(self, simple_workbook_path):
@@ -100,14 +115,15 @@ class TestRefModeRef:
         output = to_yaml(cells, ref_mode="ref")
         parsed = yaml.safe_load(output)
         # B10 = C5+1.1; C5 is a formula cell → '@Sheet1!C5'
-        b10 = parsed["Sheet1!B10"]
+        b10 = _get_cell(parsed, "Sheet1", "B10")
         assert b10 == {"ADD": ["@Sheet1!C5", 1.1]}
 
     def test_cli_default_is_ref(self, simple_workbook_path, capsys):
         rc = main([str(simple_workbook_path), "--filter", "Sheet1!B10"])
         assert rc == 0
         parsed = yaml.safe_load(capsys.readouterr().out)
-        assert parsed["Sheet1!B10"] == {"ADD": ["@Sheet1!C5", 1.1]}
+        b10 = _get_cell(parsed, "Sheet1", "B10")
+        assert b10 == {"ADD": ["@Sheet1!C5", 1.1]}
 
 
 class TestRefModeAst:
@@ -117,7 +133,7 @@ class TestRefModeAst:
         cells = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="ast")
         parsed = yaml.safe_load(output)
-        b10 = parsed["Sheet1!B10"]
+        b10 = _get_cell(parsed, "Sheet1", "B10")
         # Should have ADD with '@Sheet1!C5' mapped to its expanded AST
         assert "ADD" in b10
         args = b10["ADD"]
@@ -129,14 +145,14 @@ class TestRefModeAst:
         cells = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="ast")
         parsed = yaml.safe_load(output)
-        c5 = parsed["Sheet1!C5"]
+        c5 = _get_cell(parsed, "Sheet1", "C5")
         assert c5 == {"SUM": [{"RANGE": [10, 20]}]}
 
     def test_cli_ast_mode(self, simple_workbook_path, capsys):
         rc = main([str(simple_workbook_path), "--filter", "Sheet1!B10", "--ref-mode", "ast"])
         assert rc == 0
         parsed = yaml.safe_load(capsys.readouterr().out)
-        b10 = parsed["Sheet1!B10"]
+        b10 = _get_cell(parsed, "Sheet1", "B10")
         args = b10["ADD"]
         assert any(isinstance(a, dict) and "@Sheet1!C5" in a for a in args)
 
@@ -149,7 +165,7 @@ class TestRefModeValue:
         output = to_yaml(cells, ref_mode="value")
         parsed = yaml.safe_load(output)
         # A1 and A2 are constants → scalars in RANGE regardless of mode
-        c5 = parsed["Sheet1!C5"]
+        c5 = _get_cell(parsed, "Sheet1", "C5")
         assert c5 == {"SUM": [{"RANGE": [10, 20]}]}
 
     def test_formula_ref_is_none_for_programmatic_xlsx(self, simple_workbook_path):
@@ -157,7 +173,7 @@ class TestRefModeValue:
         cells = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="value")
         parsed = yaml.safe_load(output)
-        b10 = parsed["Sheet1!B10"]
+        b10 = _get_cell(parsed, "Sheet1", "B10")
         # C5 is a formula cell with no cached value → null
         assert b10 == {"ADD": [None, 1.1]}
 
@@ -165,7 +181,8 @@ class TestRefModeValue:
         rc = main([str(simple_workbook_path), "--filter", "Sheet1!C5", "--ref-mode", "value"])
         assert rc == 0
         parsed = yaml.safe_load(capsys.readouterr().out)
-        assert "Sheet1!C5" in parsed
+        c5 = _get_cell(parsed, "Sheet1", "C5")
+        assert c5 is not None
 
 
 class TestRefModeInline:
@@ -175,23 +192,23 @@ class TestRefModeInline:
         cells = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="inline")
         parsed = yaml.safe_load(output)
-        assert parsed["Sheet1!C5"] == "SUM(RANGE(10, 20))"
+        assert _get_cell(parsed, "Sheet1", "C5") == "SUM(RANGE(10, 20))"
 
     def test_b10_inline_expands_c5(self, simple_workbook_path):
         cells = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="inline")
         parsed = yaml.safe_load(output)
-        assert parsed["Sheet1!B10"] == "ADD(SUM(RANGE(10, 20)), 1.1)"
+        assert _get_cell(parsed, "Sheet1", "B10") == "ADD(SUM(RANGE(10, 20)), 1.1)"
 
     def test_b11_inline_expands_c5(self, simple_workbook_path):
         cells = extract_formula_cells(simple_workbook_path)
         output = to_yaml(cells, ref_mode="inline")
         parsed = yaml.safe_load(output)
-        assert parsed["Sheet1!B11"] == "MUL(SUM(RANGE(10, 20)), 2)"
+        assert _get_cell(parsed, "Sheet1", "B11") == "MUL(SUM(RANGE(10, 20)), 2)"
 
     def test_cli_inline_mode(self, simple_workbook_path, capsys):
         rc = main([str(simple_workbook_path), "--ref-mode", "inline"])
         assert rc == 0
         parsed = yaml.safe_load(capsys.readouterr().out)
-        assert parsed["Sheet1!C5"] == "SUM(RANGE(10, 20))"
-        assert parsed["Sheet1!B10"] == "ADD(SUM(RANGE(10, 20)), 1.1)"
+        assert _get_cell(parsed, "Sheet1", "C5") == "SUM(RANGE(10, 20))"
+        assert _get_cell(parsed, "Sheet1", "B10") == "ADD(SUM(RANGE(10, 20)), 1.1)"

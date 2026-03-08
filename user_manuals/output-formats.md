@@ -31,23 +31,31 @@ sheet-call-tree example.xlsx
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5'
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5'
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5'
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5'
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
-`Sheet1!B10` calls `ADD` with two arguments: a reference to the formula cell `Sheet1!C5`
-and the constant `1.1`. `Sheet1!C5` appears as its own top-level entry with its full AST.
+`B10` calls `ADD` with two arguments: a reference to the formula cell `Sheet1!C5`
+and the constant `1.1`. `C5` appears as its own `cells` entry with its full AST.
 
 ---
 
@@ -65,31 +73,39 @@ sheet-call-tree example.xlsx --ref-mode ast
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5':
-      SUM:
-      - RANGE:
-        - 10
-        - 20
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5':
-      SUM:
-      - RANGE:
-        - 10
-        - 20
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5':
+            SUM:
+            - RANGE:
+              - 10
+              - 20
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5':
+            SUM:
+            - RANGE:
+              - 10
+              - 20
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
 The `@Sheet1!C5` key carries its full `SUM(RANGE(10, 20))` sub-tree as its value,
-visible directly inside `Sheet1!B10` and `Sheet1!B11` without jumping to another entry.
+visible directly inside `B10` and `B11` without jumping to another entry.
 
 ---
 
@@ -108,19 +124,27 @@ sheet-call-tree example.xlsx --ref-mode value
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - null
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - null
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - null
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - null
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
 The `null` values for `Sheet1!C5` refs appear because the example workbook was created
@@ -143,12 +167,20 @@ sheet-call-tree example.xlsx --ref-mode inline
 ```
 
 ```yaml
-Sheet1!B10: ADD(SUM(RANGE(10, 20)), 1.1)
-Sheet1!B11: MUL(SUM(RANGE(10, 20)), 2)
-Sheet1!C5: SUM(RANGE(10, 20))
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula: ADD(SUM(RANGE(10, 20)), 1.1)
+    - cell: B11
+      formula: MUL(SUM(RANGE(10, 20)), 2)
+    - cell: C5
+      formula: SUM(RANGE(10, 20))
 ```
 
-Note that `Sheet1!C5` is fully inlined into `Sheet1!B10` and `Sheet1!B11` —
+Note that `C5` is fully inlined into `B10` and `B11` —
 `ADD(SUM(RANGE(10, 20)), 1.1)` — rather than referenced by name.
 
 ---

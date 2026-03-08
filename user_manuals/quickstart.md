@@ -37,30 +37,37 @@ sheet-call-tree example.xlsx
 Output (default `ref` mode):
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5'
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5'
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5'
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5'
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
 **Reading the output:**
 
-- Each top-level key (`Sheet1!B10`, `Sheet1!B11`, `Sheet1!C5`) is a formula cell.
-- The value is the parsed AST of that cell's formula.
+- The top-level `book` key groups cells by workbook and sheet.
+- Each entry in `cells` has a `cell` coordinate (`B10`, `C5`, …) and a `formula` AST.
 - `ADD`, `MUL`, `SUM` are the parsed operators/functions; their arguments are YAML lists.
 - `RANGE: [10, 20]` represents `A1:A2` with both endpoints resolved to their scalar values.
 - `'@Sheet1!C5'` is a cross-reference to another formula cell. The `@` prefix distinguishes
   formula-cell refs from plain strings.
-- Output keys are sorted alphabetically (`Sheet1!B10` < `Sheet1!B11` < `Sheet1!C5`).
 
 ## 3. Drill into a single cell
 
@@ -71,10 +78,16 @@ sheet-call-tree example.xlsx --filter Sheet1!B10
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5'
-  - 1.1
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5'
+        - 1.1
 ```
 
 ## 4. Expand the full AST inline (`--ref-mode ast`)
@@ -87,27 +100,35 @@ sheet-call-tree example.xlsx --ref-mode ast
 ```
 
 ```yaml
-Sheet1!B10:
-  ADD:
-  - '@Sheet1!C5':
-      SUM:
-      - RANGE:
-        - 10
-        - 20
-  - 1.1
-Sheet1!B11:
-  MUL:
-  - '@Sheet1!C5':
-      SUM:
-      - RANGE:
-        - 10
-        - 20
-  - 2
-Sheet1!C5:
-  SUM:
-  - RANGE:
-    - 10
-    - 20
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula:
+        ADD:
+        - '@Sheet1!C5':
+            SUM:
+            - RANGE:
+              - 10
+              - 20
+        - 1.1
+    - cell: B11
+      formula:
+        MUL:
+        - '@Sheet1!C5':
+            SUM:
+            - RANGE:
+              - 10
+              - 20
+        - 2
+    - cell: C5
+      formula:
+        SUM:
+        - RANGE:
+          - 10
+          - 20
 ```
 
 The `@Sheet1!C5` key now carries its full sub-tree as its value, so you can read the
@@ -122,9 +143,17 @@ sheet-call-tree example.xlsx --ref-mode inline
 ```
 
 ```yaml
-Sheet1!B10: ADD(SUM(RANGE(10, 20)), 1.1)
-Sheet1!B11: MUL(SUM(RANGE(10, 20)), 2)
-Sheet1!C5: SUM(RANGE(10, 20))
+book:
+  name: example.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: B10
+      formula: ADD(SUM(RANGE(10, 20)), 1.1)
+    - cell: B11
+      formula: MUL(SUM(RANGE(10, 20)), 2)
+    - cell: C5
+      formula: SUM(RANGE(10, 20))
 ```
 
 This is useful for quick human reading or for pasting into comments/tickets.
