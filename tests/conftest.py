@@ -3,6 +3,8 @@ import io
 
 import openpyxl
 import pytest
+from openpyxl.workbook.defined_name import DefinedName
+from openpyxl.worksheet.table import Table, TableColumn
 
 
 @pytest.fixture
@@ -63,4 +65,53 @@ def circular_workbook():
 def circular_workbook_path(circular_workbook, tmp_path):
     p = tmp_path / "circular.xlsx"
     circular_workbook.save(p)
+    return p
+
+
+@pytest.fixture
+def table_workbook():
+    """Workbook with an Excel table (Table1) containing Name and Amount columns."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws["A1"] = "Name"
+    ws["B1"] = "Amount"
+    ws["A2"] = "Alice"
+    ws["B2"] = 100
+    ws["A3"] = "Bob"
+    ws["B3"] = 200
+    # Formula using a table structured reference
+    ws["C2"] = "=SUM(Table1[Amount])"
+    # Formula using this-row reference
+    ws["D2"] = "=Table1[@Amount]*2"
+    table = Table(displayName="Table1", ref="A1:B3")
+    table.tableColumns = [TableColumn(id=1, name="Name"), TableColumn(id=2, name="Amount")]
+    ws.add_table(table)
+    return wb
+
+
+@pytest.fixture
+def table_workbook_path(table_workbook, tmp_path):
+    p = tmp_path / "table.xlsx"
+    table_workbook.save(p)
+    return p
+
+
+@pytest.fixture
+def named_range_workbook():
+    """Workbook with a named range 'SalesTotal' pointing to Sheet1!B2."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws["B2"] = 500
+    ws["C2"] = "=SalesTotal+10"
+    dn = DefinedName(name="SalesTotal", attr_text="Sheet1!$B$2")
+    wb.defined_names["SalesTotal"] = dn
+    return wb
+
+
+@pytest.fixture
+def named_range_workbook_path(named_range_workbook, tmp_path):
+    p = tmp_path / "named.xlsx"
+    named_range_workbook.save(p)
     return p

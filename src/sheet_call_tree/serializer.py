@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import yaml
 
-from .models import FunctionNode, RangeNode, RefNode
+from .models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
 
 _REF_MODES = {"ref", "ast", "value", "inline"}
 
@@ -81,6 +81,26 @@ def to_yaml(
 
 def _to_dict(node, ref_mode: str):
     """Convert a typed AST node to a YAML-serializable structure."""
+    if isinstance(node, TableRefNode):
+        if ref_mode == "value":
+            return node.cached_value
+        d: dict = {"name": node.table_name}
+        if node.column:
+            d["column"] = node.column
+        if node.this_row:
+            d["this_row"] = True
+        if node.resolved_range:
+            d["range"] = node.resolved_range
+        return {"TABLE_REF": d}
+    if isinstance(node, NamedRefNode):
+        if ref_mode == "value":
+            return node.cached_value
+        if ref_mode == "ast" and isinstance(node.value, FunctionNode):
+            return {f"NAMED_REF({node.name})": _to_dict(node.value, ref_mode)}
+        d = {"name": node.name}
+        if node.resolved_range:
+            d["range"] = node.resolved_range
+        return {"NAMED_REF": d}
     if isinstance(node, FunctionNode):
         return {node.name: [_to_dict(arg, ref_mode) for arg in node.args]}
     if isinstance(node, RangeNode):
@@ -125,6 +145,14 @@ def _render_ref(ref_node: RefNode, ref_mode: str):
 
 def _expr(node) -> str:
     """Recursively render a typed AST node as a FUNC(arg1, arg2, …) string."""
+    if isinstance(node, TableRefNode):
+        at = "@" if node.this_row else ""
+        col = f"[{at}{node.column}]" if node.column is not None else "[]"
+        return f"TABLE_REF({node.table_name}{col})"
+
+    if isinstance(node, NamedRefNode):
+        return f"NAMED_REF({node.name})"
+
     if isinstance(node, FunctionNode):
         args_str = ", ".join(_expr(arg) for arg in node.args)
         return f"{node.name}({args_str})"
