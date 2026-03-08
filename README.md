@@ -15,7 +15,7 @@ top-level key per formula cell.
 ## Installation
 
 ```bash
-uv pip install git+https://github.com/roksechs/sheet-call-tree.git
+uv tool install git+https://github.com/roksechs/sheet-call-tree.git
 ```
 
 See [user_manuals/installation.md](user_manuals/installation.md) for full details and
