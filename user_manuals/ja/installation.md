@@ -33,7 +33,7 @@ sheet-call-tree --help
 
 ```
 usage: sheet-call-tree [-h] [--filter CELL] [--output FILE] [--no-cycle-check]
-                       [--ref-mode {ref,ast,value,inline}]
+                       [--depth N] [--format {tree,inline}]
                        input
 
 Excel の数式依存関係を YAML AST として可視化します。
@@ -46,8 +46,10 @@ options:
   --filter CELL         指定したセルのみ出力する（例: 'Sheet1!B10'）
   --output FILE         YAML を stdout ではなくファイルに書き出す
   --no-cycle-check      循環参照の検出をスキップする
-  --ref-mode {ref,ast,value,inline}
-                        YAML 出力における数式セル参照の描画方法。
+  --depth N             Expansion depth: 0 = refs only (default), inf = full
+                        expansion.
+  --format {tree,inline}
+                        Output format: tree (default) or inline.
 ```
 
 ## テストの実行

@@ -45,22 +45,42 @@ detects a circular reference (e.g. A1 depends on B1 which depends on A1). Use
 sheet-call-tree myfile.xlsx --no-cycle-check
 ```
 
-### `--ref-mode {ref,ast,value,inline}`
+### `--depth N`
 
-Controls how formula-cell references are rendered in the YAML output.
-Default: `ref`.
+Controls the expansion depth for formula-cell references. Default: `0`.
 
 | Value | Description |
 |-------|-------------|
-| `ref` | Cross-reference string prefixed with `@`, e.g. `'@Sheet1!C5'` |
-| `ast` | The `@`-prefixed name used as a key whose value is the expanded sub-tree |
-| `value` | Cached computed scalar from Excel's `data_only` workbook; `null` if not cached |
+| `0` | Refs only — formula-cell references render as `'@Sheet1!C5'` cross-reference strings; range references render as `RANGE: {ref: '@Sheet1!A1:A2'}` without values |
+| `inf` | Full expansion — formula-cell references render as `{'@Sheet1!C5': <sub-tree>}` with the AST expanded in place; range references include resolved `values` |
+
+Intermediate integer values (1, 2, …) expand to that many levels of nesting.
+
+See [output-formats.md](output-formats.md) for concrete YAML examples.
+
+### `--format {tree,inline}`
+
+Controls the output format. Default: `tree`.
+
+| Value | Description |
+|-------|-------------|
+| `tree` | Nested YAML structure (default) |
 | `inline` | Each cell emitted as a single `FUNC(arg1, arg2, …)` expression string |
 
 Constant-cell references (cells containing plain values, not formulas) always resolve
 to their scalar values in all modes.
 
-See [output-formats.md](output-formats.md) for concrete YAML examples of each mode.
+### `--ref-mode` *(deprecated)*
+
+The legacy `--ref-mode` flag is still accepted for backwards compatibility but hidden from `--help`.
+
+| Legacy value | Equivalent |
+|-------------|------------|
+| `ref` | `--depth 0` |
+| `ast` | `--depth inf` |
+| `inline` | `--format inline --depth inf` |
+
+The `value` mode has been removed.
 
 ## Exit codes
 

@@ -38,13 +38,14 @@ values are the parsed AST root nodes for each formula cell.
   cached computed values (`data_only=True`).
 - Only formula cells (those whose value starts with `=`) appear as top-level keys.
 - Constant cells appear only as `RefNode` values inside formula ASTs.
-- `RefNode.value` is populated with the referenced cell's scalar (for constant cells)
-  or `FunctionNode` (for formula cells). `RefNode.cached_value` holds the `data_only`
-  scalar (may be `None` for programmatic workbooks).
+- `RefNode.formula` is populated with the referenced cell's `FunctionNode` (for formula
+  cells) or `None` (for constant/unknown cells). `RefNode.resolved_value` holds the
+  scalar value (constant cell value or `data_only` cached result; may be `None` for
+  programmatic workbooks).
 
 ---
 
-### `to_yaml(cells, ref_mode="ref", stream=None) -> str | None`
+### `to_yaml(cells, *, depth=None, fmt="tree", book_name="", stream=None) -> str | None`
 
 Serialise a `formula_cells` dict to YAML.
 
@@ -53,12 +54,15 @@ from sheet_call_tree import extract_formula_cells, to_yaml
 
 cells = extract_formula_cells("myfile.xlsx")
 
-# Return YAML string
+# Return YAML string (depth 0, tree format)
 yaml_str = to_yaml(cells)
 
-# Write to a file
+# Full expansion
+yaml_str = to_yaml(cells, depth=float('inf'))
+
+# Inline format
 with open("deps.yaml", "w") as fh:
-    to_yaml(cells, ref_mode="inline", stream=fh)
+    to_yaml(cells, fmt="inline", stream=fh)
 ```
 
 **Parameters:**
@@ -66,21 +70,22 @@ with open("deps.yaml", "w") as fh:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `cells` | `dict[str, FunctionNode]` | *(required)* | Output of `extract_formula_cells` |
-| `ref_mode` | `str` | `"ref"` | Rendering mode: `"ref"`, `"ast"`, `"value"`, or `"inline"` |
+| `depth` | `int \| float \| None` | `None` (→ 0) | Expansion depth: 0 = refs only, `inf` = full expansion |
+| `fmt` | `str` | `"tree"` | Output format: `"tree"` or `"inline"` |
+| `book_name` | `str` | `""` | Workbook filename for the top-level `book.name` field |
 | `stream` | writable file object | `None` | If provided, YAML is written to the stream |
+| `ref_mode` | `str \| None` | `None` | *(deprecated)* Legacy rendering mode; use `depth`/`fmt` instead |
 
 **Returns:** YAML string when `stream` is `None`; `None` when `stream` is provided.
-
-**Raises:** `ValueError` if `ref_mode` is not one of the four valid values.
 
 ---
 
 ## Data model (`sheet_call_tree.models`)
 
-The AST is built from three dataclasses and a type alias:
+The AST is built from five dataclasses and a type alias:
 
 ```python
-from sheet_call_tree.models import FunctionNode, RefNode, RangeNode, Node
+from sheet_call_tree.models import FunctionNode, RefNode, RangeNode, TableRefNode, NamedRefNode, Node
 ```
 
 ---
@@ -113,9 +118,9 @@ Represents a single-cell reference.
 ```python
 @dataclass
 class RefNode:
-    ref: str                    # "Sheet1!A1"  (no @ sigil)
-    value: object = None        # scalar for constant cells; FunctionNode for formula cells; None if unknown
-    cached_value: object = None # data_only computed value (for --ref-mode value); None if unavailable
+    ref: str                              # "Sheet1!A1"  (no @ sigil)
+    formula: FunctionNode | None = None   # formula cell AST (None for constant/unknown)
+    resolved_value: object = None         # scalar value (constant cell value or cached compute)
 ```
 
 **Fields:**
@@ -123,8 +128,8 @@ class RefNode:
 | Field | Description |
 |-------|-------------|
 | `ref` | Fully-qualified cell reference string without the `@` prefix, e.g. `"Sheet1!C5"` |
-| `value` | The cell's content: a scalar (`int`, `float`, `str`, `bool`) for constant cells; a `FunctionNode` for formula cells; `None` if the cell was not found in the workbook |
-| `cached_value` | The `data_only` computed value. For workbooks saved by Excel this is the last computed result. For programmatic workbooks (openpyxl-created, never opened in Excel) this is `None`. |
+| `formula` | The cell's parsed AST: a `FunctionNode` for formula cells; `None` for constant cells or if the cell was not found in the workbook |
+| `resolved_value` | The scalar value: for constant cells this is the cell value (`int`, `float`, `str`, `bool`); for formula cells this is the `data_only` cached result (may be `None` for programmatic workbooks) |
 
 ---
 
@@ -135,22 +140,105 @@ Represents a cell range reference (e.g. `A1:A2`).
 ```python
 @dataclass
 class RangeNode:
-    start: RefNode   # first cell of the range
-    end: RefNode     # last cell of the range
+    start: str                            # "Sheet1!A1"
+    end: str                              # "Sheet1!A9"
+    values: list[object] | None = None    # all cell values in range (populated by reader)
 ```
 
-`start` and `end` are `RefNode` instances with their `value` / `cached_value` fields
-populated from the workbook.
+**Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `start` | Fully-qualified start cell reference string, e.g. `"Sheet1!A1"` |
+| `end` | Fully-qualified end cell reference string, e.g. `"Sheet1!A9"` |
+| `values` | List of all cell values in the range, or `None` if not populated. At depth > 0 these values appear in the YAML output. |
+
+---
+
+### `TableRefNode`
+
+Represents a structured table reference (e.g. `Table1[Amount]` or `Table1[@Amount]`).
+
+```python
+@dataclass
+class TableRefNode:
+    table_name: str            # "Table1"
+    column: str | None         # "Amount"; None for whole-table reference
+    this_row: bool             # True when @-prefixed (Table1[@Amount])
+    resolved_range: str | None = None   # "Sheet1!D2:D100"
+    cached_value: object = None
+```
+
+**Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `table_name` | The table name, e.g. `"Table1"` |
+| `column` | The column specifier, or `None` for a whole-table reference |
+| `this_row` | `True` when the reference uses `@` for the current row (e.g. `Table1[@Amount]`) |
+| `resolved_range` | The resolved cell range, e.g. `"Sheet1!D2:D100"` |
+| `cached_value` | Cached computed value, if available |
+
+In YAML tree output, renders as:
+```yaml
+TABLE_REF:
+  name: Table1
+  column: Amount
+  this_row: true
+  range: Sheet1!D2:D100
+```
+
+In inline output, renders as: `TABLE_REF(Table1[@Amount])`
+
+---
+
+### `NamedRefNode`
+
+Represents a named range or defined name reference (e.g. `SalesTotal`).
+
+```python
+@dataclass
+class NamedRefNode:
+    name: str                  # "SalesTotal"
+    resolved_range: str | None = None   # "Sheet1!$B$10"
+    formula: FunctionNode | None = None   # formula cell AST after resolution
+    resolved_value: object = None         # scalar value
+```
+
+**Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `name` | The defined name, e.g. `"SalesTotal"` |
+| `resolved_range` | The resolved cell range or reference |
+| `formula` | The formula cell AST, if the named reference resolves to a formula cell |
+| `resolved_value` | The scalar value, if available |
+
+In YAML tree output at depth 0, renders as:
+```yaml
+NAMED_REF:
+  name: SalesTotal
+  range: Sheet1!$B$10
+```
+
+At depth > 0, if the named reference resolves to a formula, the AST is expanded:
+```yaml
+NAMED_REF(SalesTotal):
+  SUM:
+  - ...
+```
+
+In inline output, renders as: `NAMED_REF(SalesTotal)`
 
 ---
 
 ### `Node` type alias
 
 ```python
-Node = Union[FunctionNode, RefNode, RangeNode, int, float, bool, str]
+Node = Union[FunctionNode, RefNode, RangeNode, TableRefNode, NamedRefNode, int, float, bool, str]
 ```
 
-Every element in `FunctionNode.args` and every `RangeNode.start` / `end` is a `Node`.
+Every element in `FunctionNode.args` is a `Node`.
 Plain scalars (`int`, `float`, `bool`, `str`) appear as literal argument values.
 
 ---
@@ -174,7 +262,7 @@ useful for advanced use cases.
 
 ```python
 from sheet_call_tree import extract_formula_cells
-from sheet_call_tree.models import FunctionNode, RefNode, RangeNode
+from sheet_call_tree.models import FunctionNode, RefNode, RangeNode, TableRefNode, NamedRefNode
 
 
 def walk(node, depth=0):
@@ -185,9 +273,13 @@ def walk(node, depth=0):
             walk(arg, depth + 1)
         print(f"{indent})")
     elif isinstance(node, RangeNode):
-        print(f"{indent}RANGE({node.start.ref} .. {node.end.ref})")
+        print(f"{indent}RANGE({node.start} .. {node.end})")
     elif isinstance(node, RefNode):
-        print(f"{indent}@{node.ref} = {node.value!r}")
+        print(f"{indent}@{node.ref} = {node.formula!r}")
+    elif isinstance(node, TableRefNode):
+        print(f"{indent}TABLE_REF({node.table_name}[{node.column}])")
+    elif isinstance(node, NamedRefNode):
+        print(f"{indent}NAMED_REF({node.name})")
     else:
         print(f"{indent}{node!r}")
 

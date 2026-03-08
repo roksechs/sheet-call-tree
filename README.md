@@ -59,13 +59,12 @@ book:
       formula:
         SUM:
         - RANGE:
-          - 10
-          - 20
+            ref: '@Sheet1!A1:A2'
 ```
 
 The output is grouped as `book → sheets → cells`. Each cell entry has a `cell` coordinate
 and a `formula` with the parsed AST. Constant cell references resolve to scalars; formula
-cell references appear as `@Sheet!Cell` strings (in the default `ref` mode).
+cell references appear as `@Sheet!Cell` strings at the default depth (0). Range references show as `RANGE: {ref: '@Sheet1!A1:A2'}`.
 
 ## CLI flag overview
 
@@ -75,18 +74,20 @@ cell references appear as `@Sheet!Cell` strings (in the default `ref` mode).
 | `--filter CELL` | — | Output only the named cell, e.g. `Sheet1!B10` |
 | `--output FILE` | stdout | Write YAML to FILE instead of stdout |
 | `--no-cycle-check` | off | Skip circular reference detection |
-| `--ref-mode MODE` | `ref` | How to render formula-cell refs (see below) |
+| `--depth N` | `0` | Expansion depth: 0 = refs only, inf = full expansion |
+| `--format FORMAT` | `tree` | Output format: `tree` or `inline` |
 
 Full reference: [user_manuals/cli-reference.md](user_manuals/cli-reference.md)
 
-## Output modes (`--ref-mode`)
+## Output modes (`--depth` / `--format`)
 
-| Mode | Formula-cell refs render as |
-|------|-----------------------------|
-| `ref` (default) | `@Sheet1!C5` — cross-reference string |
-| `ast` | `'@Sheet1!C5': {SUM: ...}` — key with expanded sub-tree |
-| `value` | cached scalar from Excel (`null` if not cached) |
-| `inline` | fully expanded expression string, e.g. `ADD(SUM(RANGE(10, 20)), 1.1)` |
+| Setting | Formula-cell refs render as |
+|---------|-----------------------------|
+| `--depth 0` (default) | `@Sheet1!C5` — cross-reference string |
+| `--depth inf` | `'@Sheet1!C5': {SUM: ...}` — key with expanded sub-tree |
+| `--format inline` | `SUM(RANGE(@Sheet1!A1:A2))` — fully expanded expression string |
+
+The deprecated `--ref-mode` flag is still accepted (`ref`→depth 0, `ast`→depth inf, `inline`→format inline).
 
 Full details with examples: [user_manuals/output-formats.md](user_manuals/output-formats.md)
 
@@ -97,7 +98,7 @@ from sheet_call_tree import extract_formula_cells, to_yaml
 
 cells = extract_formula_cells("myfile.xlsx")
 print(to_yaml(cells))                        # ref mode (default)
-print(to_yaml(cells, ref_mode="inline"))     # inline mode
+print(to_yaml(cells, fmt="inline"))          # inline format
 ```
 
 Full API reference: [user_manuals/python-api.md](user_manuals/python-api.md)
