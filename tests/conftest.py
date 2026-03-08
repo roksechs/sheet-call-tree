@@ -30,6 +30,14 @@ def simple_workbook_path(simple_workbook, tmp_path):
 
 
 @pytest.fixture
+def simple_workbook_xlsm_path(simple_workbook, tmp_path):
+    """Save simple_workbook as .xlsm and return the path."""
+    p = tmp_path / "test.xlsm"
+    simple_workbook.save(p)
+    return p
+
+
+@pytest.fixture
 def multi_sheet_workbook():
     """Workbook with cross-sheet formula references."""
     wb = openpyxl.Workbook()

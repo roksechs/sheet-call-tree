@@ -8,7 +8,7 @@ Visualize Excel formula dependencies as a YAML AST call tree.
 
 Excel formulas can reference other cells that themselves contain formulas, creating
 dependency chains that are hard to follow in a spreadsheet UI. `sheet-call-tree`
-loads an `.xlsx` file, parses every formula cell into an abstract syntax tree (AST),
+loads an `.xlsx`/`.xlsm` file, parses every formula cell into an abstract syntax tree (AST),
 resolves cross-cell references, and emits the complete dependency tree as YAML — one
 top-level key per formula cell.
 
@@ -76,12 +76,13 @@ Range references appear as `Sheet1!A1:A2` strings. Formula cell references appea
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `INPUT` | *(required)* | Path to the `.xlsx` file |
+| `INPUT` | *(required)* | Path to the `.xlsx`/`.xlsm` file |
+| `--sheet SHEETNAME` | — | Output only cells in the specified sheet |
 | `--filter CELL` | — | Output only the named cell, e.g. `Sheet1!B10` |
 | `--output FILE` | stdout | Write YAML to FILE instead of stdout |
 | `--no-cycle-check` | off | Skip circular reference detection |
 | `--depth N` | `0` | Expansion depth: 0 = refs only, inf = full expansion |
-| `--format FORMAT` | `tree` | Output format: `tree` or `inline` |
+| `--format FORMAT` | `tree` | Output format: `tree`, `inline`, or `json` |
 | `--roots-only` | off | Output only root cells (not referenced by other formulas) |
 
 Full reference: [user_manuals/cli-reference.md](user_manuals/cli-reference.md)
@@ -93,6 +94,7 @@ Full reference: [user_manuals/cli-reference.md](user_manuals/cli-reference.md)
 | `--depth 0` (default) | `Sheet1!C5` — cross-reference string |
 | `--depth inf` | `{cell: Sheet1!C5, expression: {type: SUM, inputs: [...]}}` — expanded sub-tree |
 | `--format inline` | `SUM(Sheet1!B2:C2)` — fully expanded expression string |
+| `--format json` | Same structure as tree, but output as JSON |
 
 The deprecated `--ref-mode` flag is still accepted (`ref`→depth 0, `ast`→depth inf, `inline`→format inline).
 
@@ -101,10 +103,12 @@ Full details with examples: [user_manuals/output-formats.md](user_manuals/output
 ## Python API
 
 ```python
-from sheet_call_tree import extract_formula_cells, to_yaml
+from sheet_call_tree import extract_formula_cells, to_json, to_yaml
 
 cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
 print(to_yaml(cells, data_values=data_values, label_map=label_map))
+# Or as JSON:
+print(to_json(cells, data_values=data_values, label_map=label_map))
 ```
 
 Full API reference: [user_manuals/python-api.md](user_manuals/python-api.md)

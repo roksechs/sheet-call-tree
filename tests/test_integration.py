@@ -1,4 +1,5 @@
 """End-to-end tests: .xlsx file → YAML output."""
+import json
 import math
 
 import yaml
@@ -6,7 +7,7 @@ import yaml
 from sheet_call_tree.cli import main
 from sheet_call_tree.models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
 from sheet_call_tree.reader import extract_formula_cells
-from sheet_call_tree.serializer import to_yaml
+from sheet_call_tree.serializer import to_json, to_yaml
 
 
 def _get_cell(parsed, sheet, cell):
@@ -237,6 +238,33 @@ class TestOutputs:
 # Root-only mode tests
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Sheet filter tests
+# ---------------------------------------------------------------------------
+
+class TestSheetFilter:
+    """--sheet filters output to a single sheet."""
+
+    def test_cli_sheet_filter(self, multi_sheet_workbook_path, capsys):
+        rc = main([str(multi_sheet_workbook_path), "--sheet", "Sheet1"])
+        assert rc == 0
+        parsed = yaml.safe_load(capsys.readouterr().out)
+        sheet_names = [s["name"] for s in parsed["book"]["sheets"]]
+        assert sheet_names == ["Sheet1"]
+
+    def test_cli_sheet_filter_not_found(self, multi_sheet_workbook_path, capsys):
+        rc = main([str(multi_sheet_workbook_path), "--sheet", "NoSuchSheet"])
+        assert rc == 1
+        assert "NoSuchSheet" in capsys.readouterr().err
+
+    def test_cli_sheet_and_filter_combined(self, multi_sheet_workbook_path, capsys):
+        rc = main([str(multi_sheet_workbook_path), "--sheet", "Sheet1", "--filter", "Sheet1!B1"])
+        assert rc == 0
+        parsed = yaml.safe_load(capsys.readouterr().out)
+        cell_ids = [c["cell"] for s in parsed["book"]["sheets"] for c in s["cells"]]
+        assert cell_ids == ["B1"]
+
+
 class TestRootsOnly:
     """--roots-only outputs only cells not referenced by other formula cells."""
 
@@ -437,3 +465,82 @@ class TestYamlValidity:
         expr = _get_cell(p, "Sheet1", "B1")["expression"]
         assert isinstance(expr, str)
         assert "SUM" in expr
+
+
+# ---------------------------------------------------------------------------
+# Issue #11: Cycle detection exit code
+# ---------------------------------------------------------------------------
+
+class TestCycleExitCode:
+    """CLI returns exit code 1 and error message on circular references."""
+
+    def test_cli_cycle_exit_code(self, circular_workbook_path, capsys):
+        rc = main([str(circular_workbook_path)])
+        assert rc == 1
+
+    def test_cli_cycle_error_message(self, circular_workbook_path, capsys):
+        main([str(circular_workbook_path)])
+        err = capsys.readouterr().err
+        assert "Circular reference" in err
+
+    def test_cli_no_cycle_check_skips(self, circular_workbook_path, capsys):
+        rc = main([str(circular_workbook_path), "--no-cycle-check"])
+        assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Issue #8: .xlsm support
+# ---------------------------------------------------------------------------
+
+class TestXlsmSupport:
+    """.xlsm files are read correctly."""
+
+    def test_cli_xlsm_file(self, simple_workbook_xlsm_path, capsys):
+        rc = main([str(simple_workbook_xlsm_path)])
+        assert rc == 0
+        parsed = yaml.safe_load(capsys.readouterr().out)
+        assert "book" in parsed
+        cell_ids = [c["cell"] for s in parsed["book"]["sheets"] for c in s["cells"]]
+        assert "C5" in cell_ids
+
+
+# ---------------------------------------------------------------------------
+# Issue #3: --format json
+# ---------------------------------------------------------------------------
+
+class TestJsonOutput:
+    """--format json produces valid JSON with the same structure."""
+
+    def test_cli_json_output(self, simple_workbook_path, capsys):
+        rc = main([str(simple_workbook_path), "--format", "json"])
+        assert rc == 0
+        parsed = json.loads(capsys.readouterr().out)
+        assert "book" in parsed
+        assert "sheets" in parsed["book"]
+        cell_ids = [c["cell"] for s in parsed["book"]["sheets"] for c in s["cells"]]
+        assert "C5" in cell_ids
+
+    def test_cli_json_filter(self, simple_workbook_path, capsys):
+        rc = main([str(simple_workbook_path), "--format", "json", "--filter", "Sheet1!C5"])
+        assert rc == 0
+        parsed = json.loads(capsys.readouterr().out)
+        cells = parsed["book"]["sheets"][0]["cells"]
+        assert len(cells) == 1
+        assert cells[0]["cell"] == "C5"
+
+    def test_cli_json_depth(self, simple_workbook_path, capsys):
+        rc = main([str(simple_workbook_path), "--format", "json", "--depth", "1", "--filter", "Sheet1!B10"])
+        assert rc == 0
+        parsed = json.loads(capsys.readouterr().out)
+        expr = parsed["book"]["sheets"][0]["cells"][0]["expression"]
+        assert expr["type"] == "ADD"
+        ref_entry = next(a for a in expr["inputs"] if isinstance(a, dict) and "cell" in a)
+        assert ref_entry["cell"] == "Sheet1!C5"
+
+    def test_to_json_nan_handling(self):
+        cells = {"Sheet1!A1": FunctionNode("ADD", [float("nan"), float("inf")])}
+        result = to_json(cells, depth=0)
+        parsed = json.loads(result)
+        inputs = parsed["book"]["sheets"][0]["cells"][0]["expression"]["inputs"]
+        assert inputs[0] is None  # NaN → null
+        assert inputs[1] == "Infinity"  # inf → "Infinity"

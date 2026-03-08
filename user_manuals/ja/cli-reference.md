@@ -10,9 +10,19 @@ sheet-call-tree INPUT [OPTIONS]
 
 | 引数 | 説明 |
 |------|------|
-| `INPUT` | 解析する `.xlsx` ファイルへのパス。必須。 |
+| `INPUT` | 解析する `.xlsx`/`.xlsm` ファイルへのパス。必須。 |
 
 ## オプション
+
+### `--sheet SHEETNAME`
+
+指定したシートのセルのみ出力します。
+
+シートが存在しないか数式セルがない場合、`sheet-call-tree` はエラーを stderr に出力してコード `1` で終了します。
+
+```bash
+sheet-call-tree myfile.xlsx --sheet Sheet1
+```
 
 ### `--filter CELL`
 
@@ -53,7 +63,7 @@ sheet-call-tree myfile.xlsx --no-cycle-check
 
 各モードの具体的な YAML 例については [output-formats.md](output-formats.md) を参照してください。
 
-### `--format {tree,inline}`
+### `--format {tree,inline,json}`
 
 出力フォーマットを制御します。デフォルト: `tree`。
 
@@ -61,6 +71,7 @@ sheet-call-tree myfile.xlsx --no-cycle-check
 |----|------|
 | `tree` | `type` と `inputs` キーを持つネストされた YAML 構造（デフォルト） |
 | `inline` | 各セルを単一の `FUNC(arg1, arg2, …)` 式文字列として出力 |
+| `json` | `tree` と同じ構造を 2 スペースインデントの JSON として出力 |
 
 定数セル参照（数式ではなく通常の値を含むセル）はどのモードでも常にスカラー値に解決されます。
 
@@ -89,4 +100,4 @@ sheet-call-tree myfile.xlsx --roots-only
 | コード | 意味 |
 |--------|------|
 | `0` | 成功 |
-| `1` | セルが見つからない（`--filter` 使用時）またはその他のエラー |
+| `1` | セルが見つからない（`--filter`）、シートが見つからない（`--sheet`）、循環参照の検出、またはその他のエラー |

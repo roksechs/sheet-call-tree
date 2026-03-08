@@ -3,7 +3,7 @@
 `sheet-call-tree` uses two parameters to control output:
 
 - **`--depth N`** — controls how deeply formula-cell references are expanded. `0` (default) shows references only; `inf` shows the full expanded AST.
-- **`--format {tree,inline}`** — controls the output structure. `tree` (default) produces nested YAML; `inline` renders each cell as a single expression string.
+- **`--format {tree,inline,json}`** — controls the output structure. `tree` (default) produces nested YAML; `inline` renders each cell as a single expression string; `json` outputs the same structure as `tree` in JSON format.
 
 Constant-cell references (cells containing plain values, not formulas) always resolve to their scalar values regardless of depth or format.
 
@@ -167,6 +167,57 @@ book:
 
 Note that `C5` is fully inlined into `B10` and `B11` —
 `ADD(SUM(10, 20), 1.1)` — rather than referenced by name.
+
+---
+
+## JSON format
+
+**Use when:** you need machine-readable output for downstream tools, CI pipelines, or
+programmatic consumption.
+
+The JSON format produces the same `book → sheets → cells` structure as tree mode,
+serialized as JSON with 2-space indentation.
+
+```bash
+sheet-call-tree example.xlsx --format json
+```
+
+```json
+{
+  "book": {
+    "name": "example.xlsx",
+    "sheets": [
+      {
+        "name": "Sheet1",
+        "cells": [
+          {
+            "cell": "C5",
+            "expression": {
+              "type": "SUM",
+              "inputs": [
+                "Sheet1!A1:A2"
+              ]
+            }
+          },
+          {
+            "cell": "B10",
+            "expression": {
+              "type": "ADD",
+              "inputs": [
+                "Sheet1!C5",
+                1.1
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Special float values are handled as follows: `NaN` → `null`, `Infinity` → `"Infinity"`,
+`-Infinity` → `"-Infinity"`.
 
 ---
 

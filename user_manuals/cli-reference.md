@@ -10,9 +10,20 @@ sheet-call-tree INPUT [OPTIONS]
 
 | Argument | Description |
 |----------|-------------|
-| `INPUT` | Path to the `.xlsx` file to analyse. Required. |
+| `INPUT` | Path to the `.xlsx`/`.xlsm` file to analyse. Required. |
 
 ## Options
+
+### `--sheet SHEETNAME`
+
+Output only cells in the specified sheet.
+
+If the sheet does not exist or has no formula cells, `sheet-call-tree` prints an error
+to stderr and exits with code `1`.
+
+```bash
+sheet-call-tree myfile.xlsx --sheet Sheet1
+```
 
 ### `--filter CELL`
 
@@ -58,7 +69,7 @@ Intermediate integer values (1, 2, …) expand to that many levels of nesting.
 
 See [output-formats.md](output-formats.md) for concrete YAML examples.
 
-### `--format {tree,inline}`
+### `--format {tree,inline,json}`
 
 Controls the output format. Default: `tree`.
 
@@ -66,6 +77,7 @@ Controls the output format. Default: `tree`.
 |-------|-------------|
 | `tree` | Nested YAML structure with `type` and `inputs` keys (default) |
 | `inline` | Each cell emitted as a single `FUNC(arg1, arg2, …)` expression string |
+| `json` | Same structure as `tree`, output as JSON with 2-space indentation |
 
 Constant-cell references (cells containing plain values, not formulas) always resolve
 to their scalar values in all modes.
@@ -96,4 +108,4 @@ The `value` mode has been removed.
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Cell not found (when `--filter` is used) or other error |
+| `1` | Cell not found (`--filter`), sheet not found (`--sheet`), circular reference detected, or other error |

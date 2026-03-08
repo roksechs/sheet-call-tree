@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 def extract_formula_cells(
     path: str | Path,
 ) -> tuple[dict[str, FunctionNode], dict[str, object], dict[str, dict[str, object]]]:
-    """Load an xlsx file and return formula ASTs, cached values, and labels.
+    """Load an xlsx/xlsm file and return formula ASTs, cached values, and labels.
 
     Loads the workbook twice: once for formulas (data_only=False, full load) and
     once for cached values (data_only=True, read_only streaming to save memory).
@@ -30,7 +30,7 @@ def extract_formula_cells(
     formula ASTs.
 
     Args:
-        path: Path to the .xlsx file.
+        path: Path to the .xlsx/.xlsm file.
 
     Returns:
         Tuple of (formula_cells, data_values, label_map) where formula_cells maps
