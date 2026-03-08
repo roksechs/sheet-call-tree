@@ -5,10 +5,10 @@
 - Python ≥ 3.11
 - [`uv`](https://github.com/astral-sh/uv)（推奨）または PEP 517 互換インストーラー
 
-## PyPI からインストール
+## GitHub からインストール
 
 ```bash
-uv pip install sheet-call-tree
+uv pip install git+https://github.com/roksechs/sheet-call-tree.git
 ```
 
 ## ソースからインストール（開発用の編集可能インストール）
@@ -16,7 +16,7 @@ uv pip install sheet-call-tree
 リポジトリをクローンし、開発用依存関係付きで編集可能モードでインストールします：
 
 ```bash
-git clone https://github.com/yourorg/sheet-call-tree.git
+git clone https://github.com/roksechs/sheet-call-tree.git
 cd sheet-call-tree
 uv venv --clear
 uv pip install -e ".[dev]"

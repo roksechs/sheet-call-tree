@@ -5,10 +5,10 @@
 - Python ≥ 3.11
 - [`uv`](https://github.com/astral-sh/uv) (recommended) or any PEP 517-compatible installer
 
-## Install from PyPI
+## Install from GitHub
 
 ```bash
-uv pip install sheet-call-tree
+uv pip install git+https://github.com/roksechs/sheet-call-tree.git
 ```
 
 ## Install from source (editable dev install)
@@ -16,7 +16,7 @@ uv pip install sheet-call-tree
 Clone the repository and install in editable mode with dev dependencies:
 
 ```bash
-git clone https://github.com/yourorg/sheet-call-tree.git
+git clone https://github.com/roksechs/sheet-call-tree.git
 cd sheet-call-tree
 uv venv --clear
 uv pip install -e ".[dev]"
