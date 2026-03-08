@@ -3,7 +3,7 @@ import yaml
 import pytest
 
 from sheet_call_tree.formula_parser import parse_formula
-from sheet_call_tree.models import FunctionNode, NamedRefNode, RefNode
+from sheet_call_tree.models import CellNode, FunctionNode, NamedRefNode
 from sheet_call_tree.reader import (
     _build_named_ranges,
     extract_formula_cells,
@@ -28,19 +28,19 @@ class TestNamedRefParsing:
     def test_named_range_in_arithmetic(self):
         node = p("=SalesTotal+10")
         assert isinstance(node, FunctionNode)
-        assert node.name == "ADD"
-        named = node.args[0]
+        assert node.type == "ADD"
+        named = node.inputs[0]
         assert isinstance(named, NamedRefNode)
         assert named.name == "SalesTotal"
 
     def test_named_range_unresolved(self):
         node = p("=SalesTotal")
         assert node.resolved_range is None
-        assert node.formula is None
+        assert node.cell is None
 
     def test_regular_cell_not_named_ref(self):
         node = p("=A1")
-        assert isinstance(node, RefNode)
+        assert isinstance(node, CellNode)
         assert not isinstance(node, NamedRefNode)
 
     def test_range_not_named_ref(self):
@@ -49,7 +49,7 @@ class TestNamedRefParsing:
 
     def test_cross_sheet_not_named_ref(self):
         node = p("=Sheet2!A1")
-        assert isinstance(node, RefNode)
+        assert isinstance(node, CellNode)
 
     def test_non_ascii_name(self):
         node = p("=売上合計")
@@ -76,22 +76,23 @@ class TestNamedRefResolution:
     def test_resolved_range_populated(self, named_range_workbook_path):
         cells, *_ = extract_formula_cells(named_range_workbook_path)
         c2 = cells["Sheet1!C2"]
-        named = c2.args[0]
+        named = c2.inputs[0]
         assert isinstance(named, NamedRefNode)
         assert named.resolved_range == "Sheet1!$B$2"
 
     def test_resolved_value_populated(self, named_range_workbook_path):
         cells, *_ = extract_formula_cells(named_range_workbook_path)
         c2 = cells["Sheet1!C2"]
-        named = c2.args[0]
+        named = c2.inputs[0]
         assert isinstance(named, NamedRefNode)
-        # B2=500 is a constant cell; resolved_value should be populated
-        assert named.resolved_value == 500
+        # B2=500 is a constant cell; cell.outputs should be populated
+        assert named.cell is not None
+        assert named.cell.outputs == 500
 
     def test_unresolved_when_workbook_only(self, named_range_workbook):
         cells = extract_formula_cells_from_workbook(named_range_workbook)
         c2 = cells["Sheet1!C2"]
-        named = c2.args[0]
+        named = c2.inputs[0]
         assert isinstance(named, NamedRefNode)
         assert named.resolved_range is None
 
@@ -123,20 +124,20 @@ class TestNamedRefSerialization:
 
     def test_depth_inf_expands_function(self):
         inner = FunctionNode("MUL", [2, 3])
-        node = self._nref(formula=inner)
+        node = self._nref(cell=CellNode(cell="Sheet1!B2", expression=inner))
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="ast"))
         expr = out["book"]["sheets"][0]["cells"][0]["expression"]
         assert expr["named_ref"] == "SalesTotal"
         assert expr["expression"] == {"type": "MUL", "inputs": [2, 3]}
 
     def test_depth_inf_expands_resolved_value(self):
-        node = self._nref(resolved_value=500)
+        node = self._nref(cell=CellNode(cell="Sheet1!B2", outputs=500))
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, ref_mode="ast"))
         expr = out["book"]["sheets"][0]["cells"][0]["expression"]
         assert expr == {"named_ref": "SalesTotal", "outputs": 500}
 
     def test_depth0_no_expansion(self):
-        node = self._nref(resolved_value=500)
+        node = self._nref(cell=CellNode(cell="Sheet1!B2", outputs=500))
         out = yaml.safe_load(to_yaml({"Sheet1!C2": node}, depth=0))
         expr = out["book"]["sheets"][0]["cells"][0]["expression"]
         assert expr == {"type": "NAMED_REF", "name": "SalesTotal"}

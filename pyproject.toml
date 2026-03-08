@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sheet-call-tree"
-version = "0.1.0"
+version = "0.1.1"
 description = "Visualize Excel formula dependencies as YAML AST"
 readme = "README.md"
 license = {text = "MIT"}

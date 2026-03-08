@@ -25,7 +25,7 @@ import re
 
 from openpyxl.formula import Tokenizer
 
-from .models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
+from .models import CellNode, FunctionNode, NamedRefNode, RangeNode, TableRefNode
 
 log = logging.getLogger(__name__)
 
@@ -83,9 +83,9 @@ def _qualify(ref: str, sheet: str) -> str:
 def _parse_range_token(raw: str, sheet: str):
     """Convert a RANGE token value to a typed AST node.
 
-    - 'A1'          → RefNode('Sheet1!A1')
+    - 'A1'          → CellNode('Sheet1!A1')
     - 'A1:A9'       → RangeNode('Sheet1!A1', 'Sheet1!A9')
-    - 'Sheet2!C5'   → RefNode('Sheet2!C5')
+    - 'Sheet2!C5'   → CellNode('Sheet2!C5')
     - 'Sheet2!A1:B9'→ RangeNode('Sheet2!A1', 'Sheet2!B9')
     """
     clean = raw.replace("$", "")
@@ -96,7 +96,7 @@ def _parse_range_token(raw: str, sheet: str):
             sh, lcell = left.rsplit("!", 1)
             return RangeNode(f"{sh}!{lcell}", f"{sh}!{right}")
         return RangeNode(_qualify(left, sheet), _qualify(right, sheet))
-    return RefNode(_qualify(clean, sheet))
+    return CellNode(cell=_qualify(clean, sheet))
 
 
 def _make_operand(tok, sheet: str):
@@ -157,7 +157,7 @@ def parse_formula(formula: str, default_sheet: str):
         default_sheet: Sheet name used to qualify unqualified cell references.
 
     Returns:
-        A FunctionNode, RefNode, RangeNode, or scalar (int/float/bool/str).
+        A FunctionNode, CellNode, RangeNode, or scalar (int/float/bool/str).
         Returns None on empty input, or the raw formula string on parse failure.
     """
     if not formula.startswith("="):

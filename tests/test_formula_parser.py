@@ -2,7 +2,7 @@
 import pytest
 
 from sheet_call_tree.formula_parser import parse_formula
-from sheet_call_tree.models import FunctionNode, RangeNode, RefNode
+from sheet_call_tree.models import CellNode, FunctionNode, RangeNode
 
 
 SHEET = "Sheet1"
@@ -13,8 +13,8 @@ def p(formula):
 
 
 def ref(r):
-    """Shorthand: RefNode with value=None, cached_value=None."""
-    return RefNode(r)
+    """Shorthand: CellNode with defaults."""
+    return CellNode(cell=r)
 
 
 def fn(name, *args):

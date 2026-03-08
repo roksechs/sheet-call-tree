@@ -10,7 +10,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 
 from .formula_parser import parse_formula
 from .labeler import build_label_map
-from .models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
+from .models import CellNode, FunctionNode, NamedRefNode, RangeNode, TableRefNode
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def extract_formula_cells(
 def extract_formula_cells_from_workbook(wb: openpyxl.Workbook) -> dict[str, FunctionNode]:
     """Extract formula cells from an already-loaded workbook.
 
-    RefNode.formula and RefNode.resolved_value are left as None; call
+    CellNode.expression and CellNode.outputs are left as None; call
     _populate_ref_values() after loading a data_only workbook if needed.
     """
     result: dict[str, FunctionNode] = {}
@@ -176,11 +176,11 @@ def _populate_ref_values(
 ) -> None:
     """Walk every AST and fill ref node values.
 
-    - Formula-cell refs: formula = FunctionNode of that cell; resolved_value from data_only.
-    - Constant-cell refs: resolved_value = scalar from data_only; formula stays None.
-    - RangeNode: values populated from data_values for all cells in the range.
+    - Formula-cell refs: expression = FunctionNode of that cell; outputs from data_only.
+    - Constant-cell refs: outputs = scalar from data_only; expression stays None.
+    - RangeNode: cells populated from data_values for all cells in the range.
     - TableRefNode: resolved_range from table_ranges map.
-    - NamedRefNode: resolved_range from named_ranges map; formula/resolved_value if single cell.
+    - NamedRefNode: resolved_range from named_ranges map; cell with expression/outputs if single cell.
     - Unknown refs: fields remain None.
     """
     known = set(cells)
@@ -190,18 +190,18 @@ def _populate_ref_values(
 
 def _fill_node(node, cells, data_values, known, table_ranges, named_ranges):
     if isinstance(node, FunctionNode):
-        for arg in node.args:
+        for arg in node.inputs:
             _fill_node(arg, cells, data_values, known, table_ranges, named_ranges)
-    elif isinstance(node, RefNode):
-        ref = node.ref
+    elif isinstance(node, CellNode):
+        ref = node.cell
         if ref in known:
-            node.formula = cells[ref]
-            node.resolved_value = data_values.get(ref)
+            node.expression = cells[ref]
+            node.outputs = data_values.get(ref)
         elif ref in data_values:
-            node.resolved_value = data_values[ref]
+            node.outputs = data_values[ref]
         # else: both fields stay None
     elif isinstance(node, RangeNode):
-        node.values = _resolve_range_values(node.start, node.end, data_values)
+        node.cells = _resolve_range_cells(node.start, node.end, data_values)
     elif isinstance(node, TableRefNode):
         tbl = table_ranges.get(node.table_name)
         if tbl:
@@ -215,10 +215,16 @@ def _fill_node(node, cells, data_values, known, table_ranges, named_ranges):
             node.resolved_range = attr_text
             normalized = attr_text.replace("$", "")
             if normalized in known:
-                node.formula = cells[normalized]
-                node.resolved_value = data_values.get(normalized)
+                node.cell = CellNode(
+                    cell=normalized,
+                    expression=cells[normalized],
+                    outputs=data_values.get(normalized),
+                )
             elif normalized in data_values:
-                node.resolved_value = data_values[normalized]
+                node.cell = CellNode(
+                    cell=normalized,
+                    outputs=data_values[normalized],
+                )
 
 
 def _build_merged_cell_map(wb: openpyxl.Workbook) -> dict[str, str]:
@@ -255,8 +261,8 @@ def _build_bold_cells(wb: openpyxl.Workbook) -> set[str]:
 _CELL_REF_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
-def _resolve_range_values(start: str, end: str, data_values: dict[str, object]) -> list[object] | None:
-    """Enumerate all cells in a rectangular range and return their values.
+def _resolve_range_cells(start: str, end: str, data_values: dict[str, object]) -> list[CellNode] | None:
+    """Enumerate all cells in a rectangular range and return CellNode objects.
 
     Returns None if the range endpoints can't be parsed as cell references
     (e.g. whole-column ranges like A:B).
@@ -281,10 +287,10 @@ def _resolve_range_values(start: str, end: str, data_values: dict[str, object]) 
     end_col_idx = column_index_from_string(m_end.group(1))
     end_row = int(m_end.group(2))
 
-    values = []
+    result = []
     for row in range(start_row, end_row + 1):
         for col_idx in range(start_col_idx, end_col_idx + 1):
             col_letter = get_column_letter(col_idx)
             ref = f"{sheet}!{col_letter}{row}"
-            values.append(data_values.get(ref))
-    return values
+            result.append(CellNode(cell=ref, outputs=data_values.get(ref)))
+    return result

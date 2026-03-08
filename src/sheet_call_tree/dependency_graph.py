@@ -1,7 +1,7 @@
 """Build a cell dependency graph and detect circular references."""
 from __future__ import annotations
 
-from .models import FunctionNode, RangeNode, RefNode
+from .models import CellNode, FunctionNode, RangeNode
 
 
 class CircularReferenceError(Exception):
@@ -46,11 +46,11 @@ def build_dependency_graph(formula_cells: dict[str, object]) -> dict[str, set[st
 
 def _collect_deps(node, deps: set[str], known: set[str]) -> None:
     """Recursively walk a typed AST node and collect cell reference dependencies."""
-    if isinstance(node, RefNode):
-        if node.ref in known:
-            deps.add(node.ref)
+    if isinstance(node, CellNode):
+        if node.cell in known:
+            deps.add(node.cell)
     elif isinstance(node, FunctionNode):
-        for child in node.args:
+        for child in node.inputs:
             _collect_deps(child, deps, known)
     elif isinstance(node, RangeNode):
         if node.start in known:

@@ -177,7 +177,7 @@ class TestInlineCache:
         def counting_expr(node, _cache=None):
             nonlocal expand_count
             from sheet_call_tree.models import FunctionNode
-            if isinstance(node, FunctionNode) and node.name == "SUM":
+            if isinstance(node, FunctionNode) and node.type == "SUM":
                 expand_count += 1
             return original_expr(node, _cache)
 
@@ -187,7 +187,7 @@ class TestInlineCache:
 
         # Direct cache verification: call _expr with a shared cache and check
         # that the hub ref is only evaluated once.
-        from sheet_call_tree.models import FunctionNode, RefNode
+        from sheet_call_tree.models import CellNode, FunctionNode
         cache: dict[str, str] = {}
         hub_node = cells["Sheet1!C1"]  # FunctionNode for SUM(A1,A2)
 
@@ -197,8 +197,8 @@ class TestInlineCache:
 
         results = []
         for i in range(200):
-            ref = RefNode(ref="Sheet1!C1")
-            ref.formula = hub_node
+            ref = CellNode(cell="Sheet1!C1")
+            ref.expression = hub_node
             results.append(_expr(ref, math.inf, 0, cache))
 
         # All results must be identical (same expansion)

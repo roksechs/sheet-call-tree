@@ -5,27 +5,28 @@ from dataclasses import dataclass, field
 from typing import Union
 
 # Forward-declared via strings; resolved at runtime by Union.
-Node = Union["FunctionNode", "RefNode", "RangeNode", "TableRefNode", "NamedRefNode", int, float, bool, str]
+Node = Union["FunctionNode", "CellNode", "RangeNode", "TableRefNode", "NamedRefNode", int, float, bool, str]
 
 
 @dataclass
 class FunctionNode:
-    name: str       # "SUM", "ADD", "IF", "NEG", …
-    args: list      # list[Node]
+    type: str       # "SUM", "ADD", "IF", "NEG", …
+    inputs: list    # list[Node]
 
 
 @dataclass
-class RefNode:
-    ref: str                          # "Sheet1!A1"  (no @ sigil)
-    formula: FunctionNode | None = None   # formula cell AST (None for constant/unknown)
-    resolved_value: object = None     # scalar value (constant cell value or cached compute)
+class CellNode:
+    cell: str                                  # "Sheet1!A1"  (no @ sigil)
+    outputs: object = None                     # scalar value (constant cell value or cached compute)
+    labels: dict | None = None                 # semantic labels
+    expression: FunctionNode | None = None     # formula cell AST (None for constant/unknown)
 
 
 @dataclass
 class RangeNode:
-    start: str                            # "Sheet1!A1"
-    end: str                              # "Sheet1!A9"
-    values: list[object] | None = None    # all cell values in range (populated by reader)
+    start: str                                 # "Sheet1!A1"
+    end: str                                   # "Sheet1!A9"
+    cells: list[CellNode] | None = None        # all cells in range (populated by reader)
 
 
 @dataclass
@@ -41,11 +42,4 @@ class TableRefNode:
 class NamedRefNode:
     name: str                  # "SalesTotal"
     resolved_range: str | None = None   # "Sheet1!$B$10"
-    formula: FunctionNode | None = None   # formula cell AST after resolution
-    resolved_value: object = None         # scalar value
-
-
-@dataclass
-class CellEntry:
-    ref: str        # "Sheet1!C5"
-    ast: FunctionNode
+    cell: CellNode | None = None        # resolved cell (formula + value)
