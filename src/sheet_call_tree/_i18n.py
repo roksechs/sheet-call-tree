@@ -22,7 +22,7 @@ def detect_language() -> str:
 STRINGS: dict[str, dict[str, str]] = {
     "en": {
         "description": "Visualize Excel formula dependencies as YAML AST.",
-        "input":       "Path to the .xlsx file",
+        "input":       "Path to the .xlsx/.xlsm file",
         "filter":      "Output only the specified cell (e.g. 'Sheet1!B10')",
         "output":      "Write YAML to FILE instead of stdout",
         "no_cycle":    "Skip circular reference detection",
@@ -33,11 +33,14 @@ STRINGS: dict[str, dict[str, str]] = {
             "'value': cached computed scalar from data_only workbook. "
             "'inline': each cell as a single FUNC(...) expression string."
         ),
+        "sheet":          "Output only cells in the specified sheet",
         "err_not_found": "Error: cell {ref!r} not found or has no formula.",
+        "err_sheet_not_found": "Error: no formula cells found in sheet {sheet!r}.",
+        "err_cycle": "Error: {msg}",
     },
     "ja": {
         "description": "Excel の数式依存関係を YAML AST として可視化します。",
-        "input":       ".xlsx ファイルのパス",
+        "input":       ".xlsx/.xlsm ファイルのパス",
         "filter":      "指定したセルのみ出力する（例: 'Sheet1!B10'）",
         "output":      "YAML を stdout ではなくファイルに書き出す",
         "no_cycle":    "循環参照の検出をスキップする",
@@ -48,7 +51,10 @@ STRINGS: dict[str, dict[str, str]] = {
             "'value': data_only ワークブックのキャッシュ済みスカラー値。"
             "'inline': 各セルを単一の FUNC(...) 式文字列として出力。"
         ),
+        "sheet":          "指定したシートのセルのみ出力する",
         "err_not_found": "エラー: セル {ref!r} が見つからないか、数式がありません。",
+        "err_sheet_not_found": "エラー: シート {sheet!r} に数式セルが見つかりません。",
+        "err_cycle": "エラー: {msg}",
     },
 }
 

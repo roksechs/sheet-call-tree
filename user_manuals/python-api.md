@@ -1,19 +1,19 @@
 # Python API
 
-`sheet-call-tree` can be used as a library. The public API consists of two functions
+`sheet-call-tree` can be used as a library. The public API consists of three functions
 importable from the top-level package.
 
 ## Public API
 
 ```python
-from sheet_call_tree import extract_formula_cells, to_yaml
+from sheet_call_tree import extract_formula_cells, to_json, to_yaml
 ```
 
 ---
 
 ### `extract_formula_cells(path) -> tuple[dict, dict, dict]`
 
-Load an `.xlsx` file and return a 3-tuple of formula cells, data values, and label map.
+Load an `.xlsx`/`.xlsm` file and return a 3-tuple of formula cells, data values, and label map.
 
 ```python
 cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
@@ -29,7 +29,7 @@ cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `path` | `str \| Path` | Path to the `.xlsx` file |
+| `path` | `str \| Path` | Path to the `.xlsx`/`.xlsm` file |
 
 **Returns:** `tuple[dict[str, FunctionNode], dict[str, object], dict[str, dict]]`
 
@@ -84,7 +84,33 @@ with open("deps.yaml", "w") as fh:
 
 **Returns:** YAML string when `stream` is `None`; `None` when `stream` is provided.
 
-**Output structure (tree format):**
+---
+
+### `to_json(cells, *, stream=None, **kw) -> str | None`
+
+Serialise a `formula_cells` dict to JSON. Accepts the same keyword arguments as `to_yaml`
+(`depth`, `fmt`, `ref_mode`, `book_name`, `data_values`, `label_map`).
+
+```python
+from sheet_call_tree import extract_formula_cells, to_json
+
+cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
+
+# Return JSON string
+json_str = to_json(cells, data_values=data_values, label_map=label_map)
+
+# Write to file
+with open("deps.json", "w") as fh:
+    to_json(cells, data_values=data_values, label_map=label_map, stream=fh)
+```
+
+**Returns:** JSON string when `stream` is `None`; `None` when `stream` is provided.
+
+Special float handling: `NaN` → `null`, `Infinity` → `"Infinity"`, `-Infinity` → `"-Infinity"`.
+
+---
+
+**Output structure (tree format, shared by `to_yaml` and `to_json`):**
 
 ```yaml
 book:

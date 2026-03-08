@@ -3,7 +3,7 @@
 `sheet-call-tree` は 2 つのパラメーターで出力を制御します：
 
 - **`--depth N`** — 数式セル参照の展開の深さを制御します。`0`（デフォルト）は参照のみを表示、`inf` は完全に展開された AST を表示します。
-- **`--format {tree,inline}`** — 出力構造を制御します。`tree`（デフォルト）はネストされた YAML を生成、`inline` は各セルを単一の式文字列として表示します。
+- **`--format {tree,inline,json}`** — 出力構造を制御します。`tree`（デフォルト）はネストされた YAML を生成、`inline` は各セルを単一の式文字列として表示、`json` は `tree` と同じ構造を JSON フォーマットで出力します。
 
 定数セル参照（数式ではなく通常の値を含むセル）は深さやフォーマットに関わらず常にスカラー値に解決されます。
 
@@ -155,6 +155,54 @@ book:
 ```
 
 `C5` は `B10` と `B11` に完全にインライン展開されていることに注意してください — `ADD(SUM(10, 20), 1.1)` — 名前で参照されるのではなく直接埋め込まれています。
+
+---
+
+## JSON フォーマット
+
+**使用場面：** 後続ツール、CI パイプライン、またはプログラムによる処理のために機械可読な出力が必要なとき。
+
+JSON フォーマットはツリーモードと同じ `book → sheets → cells` 構造を 2 スペースインデントの JSON として出力します。
+
+```bash
+sheet-call-tree example.xlsx --format json
+```
+
+```json
+{
+  "book": {
+    "name": "example.xlsx",
+    "sheets": [
+      {
+        "name": "Sheet1",
+        "cells": [
+          {
+            "cell": "C5",
+            "expression": {
+              "type": "SUM",
+              "inputs": [
+                "Sheet1!A1:A2"
+              ]
+            }
+          },
+          {
+            "cell": "B10",
+            "expression": {
+              "type": "ADD",
+              "inputs": [
+                "Sheet1!C5",
+                1.1
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+特殊な浮動小数点値は以下のように処理されます：`NaN` → `null`、`Infinity` → `"Infinity"`、`-Infinity` → `"-Infinity"`。
 
 ---
 

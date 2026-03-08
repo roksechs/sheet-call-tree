@@ -1,18 +1,18 @@
 # Python API
 
-`sheet-call-tree` はライブラリとして使用できます。公開 API はトップレベルパッケージからインポートできる 2 つの関数で構成されています。
+`sheet-call-tree` はライブラリとして使用できます。公開 API はトップレベルパッケージからインポートできる 3 つの関数で構成されています。
 
 ## 公開 API
 
 ```python
-from sheet_call_tree import extract_formula_cells, to_yaml
+from sheet_call_tree import extract_formula_cells, to_json, to_yaml
 ```
 
 ---
 
 ### `extract_formula_cells(path) -> tuple[dict, dict, dict]`
 
-`.xlsx` ファイルを読み込み、数式セル・データ値・ラベルマップの 3-タプルを返します。
+`.xlsx`/`.xlsm` ファイルを読み込み、数式セル・データ値・ラベルマップの 3-タプルを返します。
 
 ```python
 cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
@@ -28,7 +28,7 @@ cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
 
 | パラメーター | 型 | 説明 |
 |------------|-----|------|
-| `path` | `str \| Path` | `.xlsx` ファイルへのパス |
+| `path` | `str \| Path` | `.xlsx`/`.xlsm` ファイルへのパス |
 
 **戻り値：** `tuple[dict[str, FunctionNode], dict[str, object], dict[str, dict]]`
 
@@ -81,7 +81,32 @@ with open("deps.yaml", "w") as fh:
 
 **戻り値：** `stream` が `None` の場合は YAML 文字列；`stream` が指定された場合は `None`。
 
-**出力構造（ツリーフォーマット）：**
+---
+
+### `to_json(cells, *, stream=None, **kw) -> str | None`
+
+`formula_cells` 辞書を JSON にシリアライズします。`to_yaml` と同じキーワード引数（`depth`、`fmt`、`ref_mode`、`book_name`、`data_values`、`label_map`）を受け付けます。
+
+```python
+from sheet_call_tree import extract_formula_cells, to_json
+
+cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
+
+# JSON 文字列を返す
+json_str = to_json(cells, data_values=data_values, label_map=label_map)
+
+# ファイルに書き出す
+with open("deps.json", "w") as fh:
+    to_json(cells, data_values=data_values, label_map=label_map, stream=fh)
+```
+
+**戻り値：** `stream` が `None` の場合は JSON 文字列；`stream` が指定された場合は `None`。
+
+特殊な浮動小数点値の処理：`NaN` → `null`、`Infinity` → `"Infinity"`、`-Infinity` → `"-Infinity"`。
+
+---
+
+**出力構造（ツリーフォーマット、`to_yaml` と `to_json` で共通）：**
 
 ```yaml
 book:

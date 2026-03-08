@@ -1,8 +1,8 @@
-"""Serialize typed formula AST nodes to YAML.
+"""Serialize typed formula AST nodes to YAML or JSON.
 
 Rendering parameters:
   --depth N       Expansion depth (default: 0). 0 = refs only, inf = full expansion.
-  --format F      tree (default) | inline
+  --format F      tree (default) | inline | json
 
 Legacy --ref-mode mapping:
   ref    → --depth 0
@@ -11,6 +11,7 @@ Legacy --ref-mode mapping:
 """
 from __future__ import annotations
 
+import json
 import math
 
 from .models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
@@ -143,6 +144,58 @@ def _resolve_depth(depth: int | float | None, ref_mode: str | None) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _build_structure(
+    formula_cells: dict[str, object],
+    *,
+    depth: int | float | None = None,
+    fmt: str = "tree",
+    ref_mode: str | None = None,
+    book_name: str = "",
+    data_values: dict[str, object] | None = None,
+    label_map: dict[str, dict[str, object]] | None = None,
+) -> dict:
+    """Build the book/sheets/cells dict structure from formula cells."""
+    if ref_mode == "inline":
+        fmt = "inline"
+    resolved_depth = _resolve_depth(depth, ref_mode)
+    dv = data_values or {}
+    lm = label_map or {}
+
+    is_inline = fmt == "inline"
+    _inline_cache: dict[str, str] | None = {} if is_inline else None
+    sheets: dict[str, list] = {}
+    for full_ref, node in formula_cells.items():
+        sheet, cell = full_ref.split("!", 1)
+        if sheet not in sheets:
+            sheets[sheet] = []
+        if is_inline:
+            formula = _expr(node, resolved_depth, 0, _inline_cache)
+        else:
+            formula = _to_dict(node, resolved_depth, 0)
+        cell_output = dv.get(full_ref)
+        cell_labels = lm.get(full_ref)
+        sheets[sheet].append((cell, formula, cell_output, cell_labels))
+
+    sheet_list = []
+    for sheet_name, cells in sheets.items():
+        cell_list = []
+        for cell_ref, formula, cell_output, cell_labels in cells:
+            entry: dict = {"cell": cell_ref}
+            if cell_labels:
+                labels = {}
+                for axis in ("row", "column"):
+                    if axis in cell_labels:
+                        labels[axis] = cell_labels[axis]
+                entry["labels"] = labels
+            if cell_output is not None:
+                entry["outputs"] = cell_output
+            entry["expression"] = formula
+            cell_list.append(entry)
+        sheet_list.append({"name": sheet_name, "cells": cell_list})
+
+    return {"book": {"name": book_name, "sheets": sheet_list}}
+
+
 def to_yaml(
     formula_cells: dict[str, object],
     *,
@@ -225,6 +278,42 @@ def to_yaml(
                 buf.append(f"      expression: {_yscalar(formula)}\n")
 
     result = "".join(buf)
+    if stream is not None:
+        stream.write(result)
+        return None
+    return result
+
+
+def _sanitize_for_json(obj):
+    """Recursively replace NaN/Inf floats for JSON compatibility."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    if isinstance(obj, float):
+        if math.isnan(obj):
+            return None
+        if math.isinf(obj):
+            return "Infinity" if obj > 0 else "-Infinity"
+    return obj
+
+
+def to_json(
+    formula_cells: dict[str, object],
+    *,
+    stream=None,
+    **kw,
+) -> str | None:
+    """Convert a formula_cells dict to JSON.
+
+    Accepts the same keyword arguments as to_yaml (depth, fmt, ref_mode,
+    book_name, data_values, label_map).
+
+    Returns:
+        JSON string when stream is None, else None.
+    """
+    structure = _sanitize_for_json(_build_structure(formula_cells, **kw))
+    result = json.dumps(structure, ensure_ascii=False, indent=2)
     if stream is not None:
         stream.write(result)
         return None

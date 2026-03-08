@@ -8,9 +8,9 @@ import warnings
 from pathlib import Path
 
 from ._i18n import get_strings
-from .dependency_graph import build_dependency_graph, detect_cycles, find_root_cells
+from .dependency_graph import CircularReferenceError, build_dependency_graph, detect_cycles, find_root_cells
 from .reader import extract_formula_cells
-from .serializer import to_yaml
+from .serializer import to_json, to_yaml
 
 
 def _parse_depth(value: str) -> float:
@@ -27,6 +27,12 @@ def main(argv=None) -> int:
         description=s["description"],
     )
     parser.add_argument("input", help=s["input"])
+    parser.add_argument(
+        "--sheet",
+        metavar="SHEETNAME",
+        dest="filter_sheet",
+        help=s["sheet"],
+    )
     parser.add_argument(
         "--filter",
         metavar="CELL",
@@ -52,10 +58,10 @@ def main(argv=None) -> int:
     )
     parser.add_argument(
         "--format",
-        choices=["tree", "inline"],
+        choices=["tree", "inline", "json"],
         default="tree",
         dest="fmt",
-        help="Output format: tree (default) or inline.",
+        help="Output format: tree (default), inline, or json.",
     )
     parser.add_argument(
         "--roots-only",
@@ -87,7 +93,11 @@ def main(argv=None) -> int:
 
     if not args.no_cycle_check:
         graph = build_dependency_graph(formula_cells)
-        detect_cycles(graph)
+        try:
+            detect_cycles(graph)
+        except CircularReferenceError as e:
+            print(s["err_cycle"].format(msg=e), file=sys.stderr)
+            return 1
 
     if args.roots_only:
         if not args.no_cycle_check:
@@ -96,6 +106,15 @@ def main(argv=None) -> int:
             graph = build_dependency_graph(formula_cells)
             roots = find_root_cells(graph)
         formula_cells = {ref: ast for ref, ast in formula_cells.items() if ref in roots}
+
+    if args.filter_sheet:
+        prefix = args.filter_sheet + "!"
+        formula_cells = {ref: ast for ref, ast in formula_cells.items()
+                         if ref.startswith(prefix)}
+        if not formula_cells:
+            print(s["err_sheet_not_found"].format(sheet=args.filter_sheet),
+                  file=sys.stderr)
+            return 1
 
     if args.filter_cell:
         if args.filter_cell not in formula_cells:
@@ -106,12 +125,13 @@ def main(argv=None) -> int:
             return 1
         formula_cells = {args.filter_cell: formula_cells[args.filter_cell]}
 
-    yaml_kw = dict(depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name, data_values=data_values, label_map=label_map)
+    serialize_kw = dict(depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name, data_values=data_values, label_map=label_map)
+    serialize = to_json if fmt == "json" else to_yaml
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
-            to_yaml(formula_cells, stream=fh, **yaml_kw)
+            serialize(formula_cells, stream=fh, **serialize_kw)
     else:
-        print(to_yaml(formula_cells, **yaml_kw), end="")
+        print(serialize(formula_cells, **serialize_kw), end="")
 
     return 0
 
