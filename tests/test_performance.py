@@ -100,11 +100,12 @@ class TestSinglePass:
         with patch.object(openpyxl.worksheet.worksheet.Worksheet, "iter_rows", counting):
             extract_formula_cells(path)[0]
 
-        # 3 sheets × 1 call each (wb only; wb_data is read_only so uses a
-        # different class and is NOT counted here)
-        assert call_count == 3, (
-            f"Expected iter_rows to be called once per sheet (3 times), got {call_count}. "
-            "A second loop pass would indicate the single-pass optimisation regressed."
+        # 3 sheets × 2 calls each: one for formula extraction, one for bold
+        # cell detection (wb only; wb_data is read_only so uses a different
+        # class and is NOT counted here)
+        assert call_count == 6, (
+            f"Expected iter_rows to be called twice per sheet (6 times), got {call_count}. "
+            "An extra loop pass would indicate an optimisation regression."
         )
 
 
@@ -121,7 +122,7 @@ class TestExtractionTiming:
         assert formula_cells == 2_000
 
         t0 = time.perf_counter()
-        result, _ = extract_formula_cells(path)
+        result, *_ = extract_formula_cells(path)
         elapsed = time.perf_counter() - t0
 
         assert len(result) == formula_cells
@@ -168,7 +169,7 @@ class TestInlineCache:
     def test_hub_expanded_once(self, tmp_path):
         """The FunctionNode of the hub cell must be passed to _expr exactly once."""
         path = _make_hub_xlsx(tmp_path, spokes=200)
-        cells, _ = extract_formula_cells(path)
+        cells, *_ = extract_formula_cells(path)
 
         expand_count = 0
         original_expr = _expr
@@ -209,7 +210,7 @@ class TestInlineCache:
     def test_inline_serialisation_time(self, tmp_path):
         """200-spoke workbook serialised in inline mode within INLINE_TIME_LIMIT_S."""
         path = _make_hub_xlsx(tmp_path, spokes=200)
-        cells, _ = extract_formula_cells(path)
+        cells, *_ = extract_formula_cells(path)
 
         t0 = time.perf_counter()
         yaml_str = to_yaml(cells, ref_mode="inline")
@@ -224,7 +225,7 @@ class TestInlineCache:
     def test_all_spokes_share_hub_expansion(self, tmp_path):
         """Every spoke's formula string contains the same hub expansion."""
         path = _make_hub_xlsx(tmp_path, spokes=5)
-        cells, _ = extract_formula_cells(path)
+        cells, *_ = extract_formula_cells(path)
         yaml_str = to_yaml(cells, ref_mode="inline")
 
         # Hub C1 = SUM(A1, A2) with A1=1, A2=2  →  SUM(1, 2)

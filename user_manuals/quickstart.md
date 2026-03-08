@@ -43,31 +43,31 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-            ref: '@Sheet1!A1:A2'
+      expression:
+        type: SUM
+        inputs:
+        - Sheet1!A1:A2
     - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5'
+      expression:
+        type: ADD
+        inputs:
+        - Sheet1!C5
         - 1.1
     - cell: B11
-      formula:
-        MUL:
-        - '@Sheet1!C5'
+      expression:
+        type: MUL
+        inputs:
+        - Sheet1!C5
         - 2
 ```
 
 **Reading the output:**
 
 - The top-level `book` key groups cells by workbook and sheet.
-- Each entry in `cells` has a `cell` coordinate (`B10`, `C5`, …) and a `formula` AST.
-- `ADD`, `MUL`, `SUM` are the parsed operators/functions; their arguments are YAML lists.
-- `RANGE: {ref: '@Sheet1!A1:A2'}` represents `A1:A2` as a range reference. At depth 0,
-  the cell values are not included.
-- `'@Sheet1!C5'` is a cross-reference to another formula cell. The `@` prefix distinguishes
-  formula-cell refs from plain strings.
+- Each entry in `cells` has a `cell` coordinate (`B10`, `C5`, …) and an `expression` AST.
+- `expression` contains `type` (the function/operator name: `ADD`, `MUL`, `SUM`, …) and `inputs` (the arguments as a YAML list).
+- `Sheet1!A1:A2` is a range reference. At depth 0, the cell values are not included.
+- `Sheet1!C5` is a cross-reference to another formula cell.
 
 ## 3. Drill into a single cell
 
@@ -84,9 +84,10 @@ book:
   - name: Sheet1
     cells:
     - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5'
+      expression:
+        type: ADD
+        inputs:
+        - Sheet1!C5
         - 1.1
 ```
 
@@ -106,40 +107,38 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-            ref: '@Sheet1!A1:A2'
-            values:
+      expression:
+        type: SUM
+        inputs:
+        - 10
+        - 20
+    - cell: B10
+      expression:
+        type: ADD
+        inputs:
+        - cell: Sheet1!C5
+          expression:
+            type: SUM
+            inputs:
             - 10
             - 20
-    - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5':
-            SUM:
-            - RANGE:
-                ref: '@Sheet1!A1:A2'
-                values:
-                - 10
-                - 20
         - 1.1
     - cell: B11
-      formula:
-        MUL:
-        - '@Sheet1!C5':
-            SUM:
-            - RANGE:
-                ref: '@Sheet1!A1:A2'
-                values:
-                - 10
-                - 20
+      expression:
+        type: MUL
+        inputs:
+        - cell: Sheet1!C5
+          expression:
+            type: SUM
+            inputs:
+            - 10
+            - 20
         - 2
 ```
 
-The `@Sheet1!C5` key now carries its full sub-tree as its value, so you can read the
-complete dependency inline without jumping between entries. The `RANGE` node now
-includes `values` with the resolved cell values.
+The `Sheet1!C5` entry now carries its full sub-tree as `expression`, so you can read the
+complete dependency inline without jumping between entries. Range values are flattened
+directly into the `inputs` list.
 
 ## 5. Compact expression strings (`--format inline`)
 
@@ -156,16 +155,55 @@ book:
   - name: Sheet1
     cells:
     - cell: C5
-      formula: SUM(RANGE(@Sheet1!A1:A2, [10, 20]))
+      expression: SUM(10, 20)
     - cell: B10
-      formula: ADD(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 1.1)
+      expression: ADD(SUM(10, 20), 1.1)
     - cell: B11
-      formula: MUL(SUM(RANGE(@Sheet1!A1:A2, [10, 20])), 2)
+      expression: MUL(SUM(10, 20), 2)
 ```
 
 This is useful for quick human reading or for pasting into comments/tickets.
 
-## 6. Write output to a file
+## 6. Semantic labels
+
+When your workbook has header rows/columns, labels are automatically detected:
+
+```python
+import openpyxl
+wb = openpyxl.Workbook()
+ws = wb.active
+ws.title = "Sheet1"
+ws["A1"] = "Name"; ws["B1"] = "Q1"; ws["C1"] = "Total"
+ws["A2"] = "Alice"; ws["B2"] = 100; ws["C2"] = "=SUM(B2:B2)"
+wb.save("labeled.xlsx")
+```
+
+```bash
+sheet-call-tree labeled.xlsx
+```
+
+```yaml
+book:
+  name: labeled.xlsx
+  sheets:
+  - name: Sheet1
+    cells:
+    - cell: C2
+      labels:
+        row:
+        - Alice
+        column:
+        - Total
+      expression:
+        type: SUM
+        inputs:
+        - Sheet1!B2:B2
+```
+
+The `labels` block shows the nearest header cells: `row` labels scan left, `column` labels
+scan up. Up to 5 candidates per direction, deduplicated.
+
+## 7. Write output to a file
 
 Use `--output` to save the YAML instead of printing to stdout:
 

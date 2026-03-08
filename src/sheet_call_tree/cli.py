@@ -83,7 +83,7 @@ def main(argv=None) -> int:
         if args.ref_mode == "inline":
             fmt = "inline"
 
-    formula_cells, data_values = extract_formula_cells(args.input)
+    formula_cells, data_values, label_map = extract_formula_cells(args.input)
 
     if not args.no_cycle_check:
         graph = build_dependency_graph(formula_cells)
@@ -106,7 +106,7 @@ def main(argv=None) -> int:
             return 1
         formula_cells = {args.filter_cell: formula_cells[args.filter_cell]}
 
-    yaml_kw = dict(depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name, data_values=data_values)
+    yaml_kw = dict(depth=depth, fmt=fmt, ref_mode=ref_mode, book_name=Path(args.input).name, data_values=data_values, label_map=label_map)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
             to_yaml(formula_cells, stream=fh, **yaml_kw)

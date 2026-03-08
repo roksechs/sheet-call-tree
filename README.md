@@ -12,6 +12,10 @@ loads an `.xlsx` file, parses every formula cell into an abstract syntax tree (A
 resolves cross-cell references, and emits the complete dependency tree as YAML — one
 top-level key per formula cell.
 
+It also **detects semantic labels** for each formula cell by classifying surrounding
+cells as headers or data using a trained RandomForest classifier, then scanning for
+the nearest header cells in each direction.
+
 ## Installation
 
 ```bash
@@ -27,11 +31,14 @@ Given a workbook with these cells:
 
 | Cell | Value |
 |------|-------|
-| A1 | `10` |
-| A2 | `20` |
-| C5 | `=SUM(A1:A2)` |
-| B10 | `=C5+1.1` |
-| B11 | `=C5*2` |
+| A1 | `Name` |
+| B1 | `Q1` |
+| C1 | `Q2` |
+| D1 | `Total` |
+| A2 | `Alice` |
+| B2 | `100` |
+| C2 | `200` |
+| D2 | `=SUM(B2:C2)` |
 
 ```bash
 sheet-call-tree myfile.xlsx
@@ -45,26 +52,25 @@ book:
   sheets:
   - name: Sheet1
     cells:
-    - cell: B10
-      formula:
-        ADD:
-        - '@Sheet1!C5'
-        - 1.1
-    - cell: B11
-      formula:
-        MUL:
-        - '@Sheet1!C5'
-        - 2
-    - cell: C5
-      formula:
-        SUM:
-        - RANGE:
-            ref: '@Sheet1!A1:A2'
+    - cell: D2
+      labels:
+        row:
+        - Alice
+        column:
+        - Total
+      expression:
+        type: SUM
+        inputs:
+        - Sheet1!B2:C2
 ```
 
-The output is grouped as `book → sheets → cells`. Each cell entry has a `cell` coordinate
-and a `formula` with the parsed AST. Constant cell references resolve to scalars; formula
-cell references appear as `@Sheet!Cell` strings at the default depth (0). Range references show as `RANGE: {ref: '@Sheet1!A1:A2'}`.
+The output is grouped as `book → sheets → cells`. Each cell entry has:
+- `cell` — the cell coordinate
+- `labels` — detected semantic labels (`row` and `column` headers, nearest first)
+- `expression` — the parsed AST with `type` (function name) and `inputs` (arguments)
+
+Range references appear as `Sheet1!A1:A2` strings. Formula cell references appear as
+`Sheet1!C5` strings at the default depth (0).
 
 ## CLI flag overview
 
@@ -76,6 +82,7 @@ cell references appear as `@Sheet!Cell` strings at the default depth (0). Range 
 | `--no-cycle-check` | off | Skip circular reference detection |
 | `--depth N` | `0` | Expansion depth: 0 = refs only, inf = full expansion |
 | `--format FORMAT` | `tree` | Output format: `tree` or `inline` |
+| `--roots-only` | off | Output only root cells (not referenced by other formulas) |
 
 Full reference: [user_manuals/cli-reference.md](user_manuals/cli-reference.md)
 
@@ -83,9 +90,9 @@ Full reference: [user_manuals/cli-reference.md](user_manuals/cli-reference.md)
 
 | Setting | Formula-cell refs render as |
 |---------|-----------------------------|
-| `--depth 0` (default) | `@Sheet1!C5` — cross-reference string |
-| `--depth inf` | `'@Sheet1!C5': {SUM: ...}` — key with expanded sub-tree |
-| `--format inline` | `SUM(RANGE(@Sheet1!A1:A2))` — fully expanded expression string |
+| `--depth 0` (default) | `Sheet1!C5` — cross-reference string |
+| `--depth inf` | `{cell: Sheet1!C5, expression: {type: SUM, inputs: [...]}}` — expanded sub-tree |
+| `--format inline` | `SUM(Sheet1!B2:C2)` — fully expanded expression string |
 
 The deprecated `--ref-mode` flag is still accepted (`ref`→depth 0, `ast`→depth inf, `inline`→format inline).
 
@@ -96,9 +103,8 @@ Full details with examples: [user_manuals/output-formats.md](user_manuals/output
 ```python
 from sheet_call_tree import extract_formula_cells, to_yaml
 
-cells = extract_formula_cells("myfile.xlsx")
-print(to_yaml(cells))                        # ref mode (default)
-print(to_yaml(cells, fmt="inline"))          # inline format
+cells, data_values, label_map = extract_formula_cells("myfile.xlsx")
+print(to_yaml(cells, data_values=data_values, label_map=label_map))
 ```
 
 Full API reference: [user_manuals/python-api.md](user_manuals/python-api.md)

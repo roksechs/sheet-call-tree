@@ -74,14 +74,14 @@ class TestNamedRangeBuilding:
 
 class TestNamedRefResolution:
     def test_resolved_range_populated(self, named_range_workbook_path):
-        cells, _ = extract_formula_cells(named_range_workbook_path)
+        cells, *_ = extract_formula_cells(named_range_workbook_path)
         c2 = cells["Sheet1!C2"]
         named = c2.args[0]
         assert isinstance(named, NamedRefNode)
         assert named.resolved_range == "Sheet1!$B$2"
 
     def test_resolved_value_populated(self, named_range_workbook_path):
-        cells, _ = extract_formula_cells(named_range_workbook_path)
+        cells, *_ = extract_formula_cells(named_range_workbook_path)
         c2 = cells["Sheet1!C2"]
         named = c2.args[0]
         assert isinstance(named, NamedRefNode)

@@ -1,0 +1,25 @@
+Third-Party Data Attribution
+=============================
+
+The cell-role classifier (src/sheet_call_tree/cell_classifier.joblib) was
+trained using the following datasets:
+
+1. ENTRANT
+   Authors: Zavitsanos, E., Mavroeidis, D., Spyropoulou, E., Fergadiotis, M.,
+            & Paliouras, G.
+   Paper:   "ENTRANT: A Large Financial Dataset for Table Understanding"
+            Sci Data 11, 876 (2024). https://doi.org/10.1038/s41597-024-03605-5
+   Data:    https://zenodo.org/records/10667088
+   License: Creative Commons Attribution 4.0 International (CC-BY-4.0)
+   Subsets used: 18-K, 10-KT, 485BPOS, 497, S-1
+
+2. CTC (CIUS & SAUS)
+   Author:  Majid Ghasemi Gol
+   Paper:   "Tabular Cell Classification Using Pre-Trained Cell Embeddings"
+            (ICDM 2019)
+   Source:  https://github.com/majidghgol/TabularCellTypeClassification
+   License: MIT
+   Subsets used: CIUS (train), SAUS (eval)
+
+Per the CC-BY-4.0 and MIT license terms, this trained model constitutes
+adapted material derived from the above datasets.

@@ -51,8 +51,8 @@ Controls the expansion depth for formula-cell references. Default: `0`.
 
 | Value | Description |
 |-------|-------------|
-| `0` | Refs only — formula-cell references render as `'@Sheet1!C5'` cross-reference strings; range references render as `RANGE: {ref: '@Sheet1!A1:A2'}` without values |
-| `inf` | Full expansion — formula-cell references render as `{'@Sheet1!C5': <sub-tree>}` with the AST expanded in place; range references include resolved `values` |
+| `0` | Refs only — formula-cell references render as `Sheet1!C5` cross-reference strings; range references render as `Sheet1!A1:A2` without values |
+| `inf` | Full expansion — formula-cell references render as `{cell: Sheet1!C5, expression: ...}` with the AST expanded in place; range values are flattened into parent `inputs` |
 
 Intermediate integer values (1, 2, …) expand to that many levels of nesting.
 
@@ -64,11 +64,20 @@ Controls the output format. Default: `tree`.
 
 | Value | Description |
 |-------|-------------|
-| `tree` | Nested YAML structure (default) |
+| `tree` | Nested YAML structure with `type` and `inputs` keys (default) |
 | `inline` | Each cell emitted as a single `FUNC(arg1, arg2, …)` expression string |
 
 Constant-cell references (cells containing plain values, not formulas) always resolve
 to their scalar values in all modes.
+
+### `--roots-only`
+
+Output only root cells — cells that are not referenced by any other formula cell.
+This is useful for finding the "entry points" of a workbook's calculation graph.
+
+```bash
+sheet-call-tree myfile.xlsx --roots-only
+```
 
 ### `--ref-mode` *(deprecated)*
 

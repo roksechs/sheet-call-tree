@@ -9,6 +9,7 @@ import openpyxl
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 from .formula_parser import parse_formula
+from .labeler import build_label_map
 from .models import FunctionNode, NamedRefNode, RangeNode, RefNode, TableRefNode
 
 log = logging.getLogger(__name__)
@@ -16,8 +17,8 @@ log = logging.getLogger(__name__)
 
 def extract_formula_cells(
     path: str | Path,
-) -> tuple[dict[str, FunctionNode], dict[str, object]]:
-    """Load an xlsx file and return formula ASTs and cached cell values.
+) -> tuple[dict[str, FunctionNode], dict[str, object], dict[str, dict[str, object]]]:
+    """Load an xlsx file and return formula ASTs, cached values, and labels.
 
     Loads the workbook twice: once for formulas (data_only=False, full load) and
     once for cached values (data_only=True, read_only streaming to save memory).
@@ -32,9 +33,10 @@ def extract_formula_cells(
         path: Path to the .xlsx file.
 
     Returns:
-        Tuple of (formula_cells, data_values) where formula_cells maps
-        'SheetName!CellRef' strings to FunctionNode AST roots, and
-        data_values maps cell refs to their cached scalar values.
+        Tuple of (formula_cells, data_values, label_map) where formula_cells maps
+        'SheetName!CellRef' strings to FunctionNode AST roots, data_values maps
+        cell refs to their cached scalar values, and label_map maps cell refs to
+        dicts with 'row' and 'column' label values.
     """
     wb = openpyxl.load_workbook(path, data_only=False)
     wb_data = openpyxl.load_workbook(path, data_only=True, read_only=True)
@@ -43,10 +45,13 @@ def extract_formula_cells(
 
     table_ranges = _build_table_ranges(wb)
     named_ranges = _build_named_ranges(wb)
+    merged_map = _build_merged_cell_map(wb)
+    bold_cells = _build_bold_cells(wb)
     wb.close()  # formula workbook no longer needed
 
     _populate_ref_values(cells, data_values, table_ranges, named_ranges)
-    return cells, data_values
+    label_map = build_label_map(cells, data_values, merged_map, bold_cells)
+    return cells, data_values, label_map
 
 
 def extract_formula_cells_from_workbook(wb: openpyxl.Workbook) -> dict[str, FunctionNode]:
@@ -214,6 +219,37 @@ def _fill_node(node, cells, data_values, known, table_ranges, named_ranges):
                 node.resolved_value = data_values.get(normalized)
             elif normalized in data_values:
                 node.resolved_value = data_values[normalized]
+
+
+def _build_merged_cell_map(wb: openpyxl.Workbook) -> dict[str, str]:
+    """Map merged cell refs to top-left cell ref.
+
+    For each merged range, every cell in the range maps to the top-left cell.
+    """
+    result: dict[str, str] = {}
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        for merged_range in ws.merged_cells.ranges:
+            min_col, min_row, max_col, max_row = merged_range.bounds
+            top_left = f"{sheet_name}!{get_column_letter(min_col)}{min_row}"
+            for row in range(min_row, max_row + 1):
+                for col in range(min_col, max_col + 1):
+                    ref = f"{sheet_name}!{get_column_letter(col)}{row}"
+                    if ref != top_left:
+                        result[ref] = top_left
+    return result
+
+
+def _build_bold_cells(wb: openpyxl.Workbook) -> set[str]:
+    """Return set of cell refs with bold font."""
+    result: set[str] = set()
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.font and cell.font.bold:
+                    result.add(f"{sheet_name}!{cell.column_letter}{cell.row}")
+    return result
 
 
 _CELL_REF_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
