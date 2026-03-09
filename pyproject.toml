@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sheet-call-tree"
-version = "0.1.1"
+version = "0.1.2"
 description = "Visualize Excel formula dependencies as YAML AST"
 readme = "README.md"
 license = {text = "MIT"}
@@ -19,6 +19,7 @@ classifiers = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "huggingface-hub>=0.24",
     "joblib>=1.5.3",
     "openpyxl>=3.1",
     "pyyaml>=6.0",
@@ -40,4 +41,4 @@ Issues = "https://github.com/roksechs/sheet-call-tree/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sheet_call_tree = ["*.joblib"]
+sheet_call_tree = []

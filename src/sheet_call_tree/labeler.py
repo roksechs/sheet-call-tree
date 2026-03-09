@@ -34,8 +34,16 @@ _clf = None
 def _load_classifier():
     global _clf
     if _clf is None:
-        model_path = Path(__file__).parent / "cell_classifier.joblib"
-        _clf = joblib.load(model_path)
+        local = Path(__file__).parent / "cell_classifier.joblib"
+        if local.exists():
+            _clf = joblib.load(local)
+        else:
+            from huggingface_hub import hf_hub_download
+            path = hf_hub_download(
+                repo_id="roksechs/sheet-cell-classifier",
+                filename="cell_classifier.joblib",
+            )
+            _clf = joblib.load(path)
     return _clf
 
 
