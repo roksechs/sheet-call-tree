@@ -40,7 +40,7 @@ def _load_classifier():
         else:
             from huggingface_hub import hf_hub_download
             path = hf_hub_download(
-                repo_id="roksechs/sheet-cell-classifier",
+                repo_id="RokRok/sheet-cell-classifier",
                 filename="cell_classifier.joblib",
             )
             _clf = joblib.load(path)
